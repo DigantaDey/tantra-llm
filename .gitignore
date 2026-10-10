@@ -17,6 +17,7 @@ data/raw/
 data/processed/
 data/calibration/
 data/baseline/
+data/extra/
 models/
 reports/
 third_party/
