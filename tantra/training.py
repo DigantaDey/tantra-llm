@@ -88,6 +88,7 @@ def _collate(items: list[tuple[list[int], list[int]]]) -> tuple[torch.Tensor, to
 def label_accuracy(model: TagDenoiser, encoded: list[tuple[list[int], list[int]]], batch: int = 64) -> float:
     correct = 0
     total = 0
+    was_training = model.training
     model.eval()
     with torch.inference_mode():
         for start in range(0, len(encoded), batch):
@@ -96,7 +97,7 @@ def label_accuracy(model: TagDenoiser, encoded: list[tuple[list[int], list[int]]
             mask = labels.ne(IGNORE_INDEX)
             correct += int((pred.eq(labels) & mask).sum())
             total += int(mask.sum())
-    model.train()
+    model.train(was_training)
     return correct / total if total else 0.0
 
 
@@ -119,6 +120,7 @@ def edit_scores(
 ) -> EditScores:
     keep_id = tags.id_of(KEEP)
     hits = gold = predicted = 0
+    was_training = model.training
     model.eval()
     with torch.inference_mode():
         for start in range(0, len(encoded), batch):
@@ -130,7 +132,7 @@ def edit_scores(
             hits += int((pred.eq(labels) & gold_edit).sum())
             gold += int(gold_edit.sum())
             predicted += int(pred_edit.sum())
-    model.train()
+    model.train(was_training)
     recall = hits / gold if gold else float("nan")
     precision = hits / predicted if predicted else float("nan")
     return EditScores(recall=recall, precision=precision, gold_edits=gold, predicted_edits=predicted)
@@ -202,6 +204,7 @@ def train_denoiser(
             log(f"  validation label accuracy: {label_accuracy(model, valid_enc):.4f}")
             # Interim checkpoint: a long run should not be lost to an interruption.
             _save(Corrector(model, chars, tags, None), checkpoint_path, {"interim_step": step + 1})
+            model.train()  # Corrector() puts the model in eval mode; training must keep dropout on.
 
     seconds = time.time() - started
     model.eval()

@@ -268,3 +268,65 @@ def test_edit_weight_is_recorded_in_the_checkpoint(tmp_path):
     )
     saved = torch.load(ckpt, map_location="cpu", weights_only=False)
     assert saved["train_config"]["edit_weight"] == 5.0
+
+
+# ------------------------------------------------------- train/eval mode regressions
+DROPOUT = ModelConfig(d_model=32, n_heads=2, n_layers=1, max_len=64, dropout=0.5)
+
+
+def test_scoring_helpers_leave_the_model_in_the_mode_they_found_it():
+    chars, tags, _ = _tiny_setup(["ক্", "স"])
+    model = TagDenoiser(len(chars), len(tags), DROPOUT)
+    examples = build_examples(SENTENCES * 2, copies=1, profile=NoiseProfile.scaled(3), max_len=64, seed=3)
+    encoded = encode_examples(examples, chars, tags)
+    model.train()
+    label_accuracy(model, encoded)
+    edit_scores(model, encoded, tags)
+    assert model.training
+    model.eval()
+    label_accuracy(model, encoded)
+    edit_scores(model, encoded, tags)
+    assert not model.training
+
+
+def test_inference_is_unchanged_by_scoring_that_runs_first():
+    """Regression: scoring used to leave dropout on, so later corrections drifted from run to run."""
+    chars, tags, _ = _tiny_setup(["ক্", "স"])
+    model = TagDenoiser(len(chars), len(tags), DROPOUT)
+    examples = build_examples(SENTENCES * 2, copies=1, profile=NoiseProfile.scaled(3), max_len=64, seed=3)
+    encoded = encode_examples(examples, chars, tags)
+    ids = torch.tensor([chars.encode(SENTENCES[0])[:32]])
+    Corrector(model, chars, tags, None)  # puts the model in eval mode, as inference requires
+    with torch.inference_mode():
+        before = model(ids)
+    edit_scores(model, encoded, tags)
+    with torch.inference_mode():
+        after = model(ids)
+    assert torch.equal(before, after)
+
+
+def test_training_keeps_dropout_on_after_interim_checkpoints(tmp_path, monkeypatch):
+    """Regression: an interim checkpoint used to switch training to eval mode for the rest of the run."""
+    chars, tags, _ = _tiny_setup(["ক্", "স"])
+    examples = build_examples(SENTENCES * 10, copies=2, profile=NoiseProfile.scaled(3), max_len=64, seed=4)
+    training_modes: list[bool] = []
+    original_forward = TagDenoiser.forward
+
+    def recording_forward(self, ids):
+        if torch.is_grad_enabled():
+            training_modes.append(self.training)
+        return original_forward(self, ids)
+
+    monkeypatch.setattr(TagDenoiser, "forward", recording_forward)
+    train_denoiser(
+        examples[10:],
+        examples[:10],
+        chars=chars,
+        tags=tags,
+        model_config=DROPOUT,
+        train_config=TrainConfig(steps=8, batch_size=8, warmup_steps=1, threads=1, eval_every=2, eval_examples=4),
+        checkpoint_path=tmp_path / "interim.pt",
+        log=lambda _m: None,
+    )
+    assert len(training_modes) == 8
+    assert all(training_modes)
