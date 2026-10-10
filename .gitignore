@@ -1,0 +1,27 @@
+# Downloaded Archive.org sources and generated corpora
+/data/raw/
+/data/clean/
+/data/baseline/
+/data/calibration/
+
+# Model weights, checkpoints, and large generated files
+/models/
+*.gguf
+*.imatrix
+*.pt
+*.safetensors
+*.bin
+*.partial.gguf
+
+# Python tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local llama.cpp checkout / build
+/llama.cpp/
+/build/
+*.egg-info/
