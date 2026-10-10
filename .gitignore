@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Pipeline artefacts (large / regenerable — never commit)
+data/raw/
+data/processed/
+data/calibration/
+data/baseline/
+models/
+reports/
+third_party/
+*.gguf
+*.pt
+*.dat
+*.bin
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

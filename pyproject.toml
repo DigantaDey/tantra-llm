@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tantra-llm"
+version = "0.1.0"
+description = "Archive scraping, Bengali OCR correction and edge-LLM tooling for Tantric texts."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "internetarchive>=5.0",
+    "psutil>=5.9",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+# Training / inference of the OCR corrector (CPU build recommended, see README).
+train = ["torch>=2.2"]
+# Local LLM runtime for app.py and benchmark.py.
+llm = ["llama-cpp-python>=0.3.2"]
+# GGUF conversion helpers used by quantize.sh.
+convert = ["transformers>=4.45", "gguf>=0.10", "sentencepiece>=0.2", "numpy>=1.26"]
+# ruff is pinned: formatting rules change between releases and CI must not drift.
+dev = ["pytest>=8", "ruff==0.17.0", "torch>=2.2"]
+all = ["tantra-llm[train,llm,convert]"]
+
+[project.scripts]
+tantra-scrape = "tantra.cli.scrape:main"
+tantra-clean = "tantra.cli.clean:main"
+
+[tool.setuptools.packages.find]
+include = ["tantra*"]
+
+[tool.setuptools.package-data]
+tantra = ["data/*.tsv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["slow: slow end-to-end tests (deselect with -m 'not slow')"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "third_party", "data", "models"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF100"]
+ignore = ["B905"]  # zip(strict=) not required on every call site
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
