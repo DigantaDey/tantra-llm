@@ -22,7 +22,7 @@ archive.org ──► scraper.py ──► data/raw ──► cleaner.py ──�
 | Quantization | `quantize.sh` runs the full chain (HF → f16 GGUF → i-matrix → Q4_K_M and Q3_K_L → GGUF magic check → SHA256SUMS) on a tiny random LLaMA. `llama-cpp-python` 0.3.36 loads both outputs. | The Qwen2.5 conversion. The sandbox cannot reach Hugging Face. |
 | App and benchmark | `app.py` and `benchmark.py` run end-to-end on the tiny model, including `--prompt`, the interactive REPL, JSON reports and `--enforce`. | Memory and speed of the 1.5B model. Not measured yet. |
 
-Everything is covered by 516 unit and integration tests that run offline in a few seconds.
+Everything is covered by 519 unit and integration tests that run offline in a few seconds.
 
 ## Quick start
 
@@ -32,7 +32,7 @@ Requires Python 3.11 or 3.12.
 python -m venv .venv && . .venv/bin/activate
 pip install --index-url https://download.pytorch.org/whl/cpu torch   # CPU build, much smaller
 pip install -e ".[dev]"                                              # scraper, cleaner, tests
-pytest -q                                                            # 516 tests, a few seconds
+pytest -q                                                            # 519 tests, a few seconds
 ```
 
 For the chat model and benchmark, also install the local runtime and build llama.cpp tools:
@@ -73,7 +73,7 @@ The denoiser is a character-level, bidirectional tagger in the style of GECToR. 
 
 The **esoteric lexicon** (`tantra/data/esoteric_terms.tsv`) acts as an anchor. For every word within edit distance 2 of a lexicon term, the candidate that is in the lexicon gets a bonus of `--dict-bonus` nats (default 3.0). The anchor can be switched off with `--no-dictionary`. The lexicon is a 64-term seed list that needs curation by a specialist before it is relied on.
 
-Training takes `--edit-weight` (default 1.0). Values above 1 up-weight the rare non-KEEP labels. The results below show that 5.0 over-edits, so leave it at the default unless you have measured otherwise.
+Training takes `--edit-weight` (default 1.0). Values above 1 up-weight the rare non-KEEP labels. The results below show that values above 1 raise recall but lower precision and CER, so leave it at the default unless you have measured otherwise.
 
 `evaluate` reports, for several noise levels:
 
@@ -113,8 +113,9 @@ Read this before you publish or redistribute anything.
 
 - **No text is shipped in this repository.** `data/` and `models/` are git-ignored. The scraper stores the metadata, licence and source URL with every item, so provenance travels with the text.
 - **The scraper accepts only items marked public domain by default.** Checking the actual rights of each item is still your responsibility. Use `--include-unmarked` only after review.
-- **Baseline corpus.** The denoiser's clean-Bengali baseline is a local news corpus (SUMono, GPL-3). It is used for local experiments only and must not be redistributed. Whether a checkpoint trained on GPL-3 text is itself a derivative work is an open question, and the answer should be settled before any checkpoint is published.
-- **Lexicon and code.** The lexicon is a hand-written seed list. The code has no LICENSE file yet. The licence stance is an open decision.
+- **Licence.** The code, the lexicon and the documentation are licensed under GPL-3.0-only (see `LICENSE`). The repository uses the same licence as the baseline corpus below, so it does not add a conflicting one.
+- **Baseline corpus.** The denoiser is trained on eight news files from SUMono (`maamumin/SUMono`, GPL-3.0). The copy in `data/baseline/` is git-ignored and is not redistributed here. Whether a checkpoint counts as derived from that text is a legal question this project has not settled, so the conservative policy is to publish checkpoints only under GPL-3.0 and say so next to them.
+- **Lexicon.** The lexicon is a hand-written seed list. It needs review by a specialist before it is relied on.
 
 ## Network and verification limits
 
@@ -146,29 +147,35 @@ The denoiser is trained on synthetic OCR errors applied to clean text. The error
 
 ## Results
 
-### The denoiser does not yet improve OCR reliably
+### The denoiser does not improve OCR in any meaningful way yet
 
-These are the measured results of the two training runs. Both used 2,500 steps (about 21 to 23 minutes on 2 CPU threads) and the same corpus, model and noise. They differ only in `--edit-weight`. Evaluation is on 368 held-out windows at the default noise level (×1). The full table for every noise level is in `reports/eval-*.json`, which is git-ignored.
+Four edit-weight settings were trained with the same data, model and schedule: the eight SUMono news files (58,255 clean windows), a 0.77 M-parameter model, 2,500 steps, batch 48, 2 CPU threads and seed 13. Each was evaluated with `cleaner.py evaluate` on 368 held-out windows (44,544 clean characters) at noise ×1, where the corruption is the default profile. Repeating an evaluation gave identical output (checked on the 5.0 checkpoint).
 
-| Run | `--edit-weight` | CER noisy | CER model | CER + dictionary | Edit recall | Edit precision |
+These numbers come from the code at `cd9636c`. Earlier runs were affected by two train/eval mode bugs. Scoring left dropout on, so corrections drifted between runs. An interim checkpoint turned dropout off for the rest of training. Those checkpoints and numbers were discarded.
+
+| `--edit-weight` | CER noisy | CER model | CER + dictionary | Edit precision | Edit recall | Predicted edits (gold 1,504) |
 |---|---|---|---|---|---|---|
-| 1 (default) | 1.0 | 0.0342 | 0.0341 | 0.0340 | 0.008 | 0.75 |
-| 2 | 5.0 | 0.0342 | 0.0420 | 0.0420 | 0.137 | 0.27 |
+| 1.0 (default) | 0.0342 | 0.0341 | 0.0341 | 0.64 | 0.006 | 14 |
+| 2.0 | 0.0342 | 0.0341 | 0.0341 | 0.59 | 0.009 | 22 |
+| 3.0 | 0.0342 | 0.0355 | 0.0355 | 0.30 | 0.036 | 180 |
+| 5.0 | 0.0342 | 0.0405 | 0.0406 | 0.26 | 0.121 | 694 |
+
+At noise ×0.5 and ×2 the picture is the same. The default changes CER by under 0.0002, and the 3.0 and 5.0 settings make it worse, except that 3.0 is very slightly better at ×2.
 
 What these numbers show:
 
-- **Run 1 learned to copy its input.** 96.8% of labels are KEEP. On a separate 400-window synthetic sample (noise ×1), an all-KEEP predictor reaches 96.84% label accuracy, and run 1 reaches 96.85%. On the 368-window evaluation above, run 1 makes only 16 edits against 1,504 gold edit positions. Most of those 16 are right, which is why precision is high, but it hardly corrects anything. CER is unchanged.
-- **Run 2 over-edits.** Up-weighting edits raises recall, but most of the extra edits are wrong. CER gets worse (0.0342 → 0.0420), so this setting is not usable.
-- **The dictionary anchor has a negligible effect** on this synthetic set (CER 0.0341 → 0.0340). Term recall is the same with and without it. The synthetic noise rarely damages lexicon words, so this test cannot show the anchor's value.
-- **Tried and rejected:** subtracting a fixed bias from the KEEP logit at inference, with no retraining. In a quick sweep on another 354-window sample, CER was 0.0322 at bias 0, 0.0388 at bias 2, and 0.246 at bias 4. The model's edit scores are not well calibrated, so no threshold rescues it.
+- **The best setting gains almost nothing.** At the default weight, CER drops by 0.00011 on the ×1 set. That is about 5 characters out of 44,544. Precision is 0.64, but it rests on only 14 edits, and no confidence interval was computed.
+- **Raising the weight trades precision for recall, and CER gets worse.** Recall rises from 0.006 to 0.121, while precision falls from 0.64 to 0.26 and CER rises from 0.0341 to 0.0405.
+- **The default model has learned the label prior.** About 96.6% of evaluation labels are KEEP, meaning "leave this character alone". Predicting KEEP everywhere scores 96.61% label accuracy on those labels. The default model scores 96.62%.
+- **The dictionary anchor has no measurable effect on this synthetic set.** CER is 0.0341 with and without it, and term recall is 0.714 in both cases. The synthetic noise rarely damages lexicon words, so this test cannot show the anchor's value.
 
-The default `--edit-weight` stays at 1.0, which is run 1. That is the safe choice because it does not make the text worse. But **the correction stage is experimental** and should not be trusted to fix OCR yet. The pipeline, scraping, quantization and app are the parts that work end to end. Making the denoiser useful probably needs a larger and more realistic baseline corpus, longer training, and a calibrated decision threshold, all tuned against real scans rather than synthetic noise.
+The default `--edit-weight` stays at 1.0. It is the most precise setting tried, and it does not make the text worse. But **the correction stage is experimental** and should not be trusted to fix OCR yet. The pipeline, scraping, quantization and chat app are the parts that work end to end. A useful denoiser probably needs more clean Bengali text than the eight files available here, longer training, and noise levels calibrated against real scans rather than synthetic corruption.
 
 ## Development
 
 ```bash
 ruff check . && ruff format --check .   # lint and formatting (ruff pinned to 0.17.0)
-pytest -q                               # 516 unit and integration tests
+pytest -q                               # 519 unit and integration tests
 shellcheck quantize.sh                  # shell checks
 ```
 
