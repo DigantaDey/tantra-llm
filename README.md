@@ -150,7 +150,7 @@ The denoiser is trained on synthetic OCR errors applied to clean text. The error
 
 ### The denoiser does not improve OCR in any meaningful way yet
 
-All models use the same model and schedule: 0.77 M parameters, 2,500 steps, batch 48, 2 CPU threads, seed 13, noise ×1 for training. Each is evaluated with `cleaner.py evaluate` on the same 368 held-out SUMono windows (44,544 clean characters) at noise ×1, the default corruption profile. These numbers come from the code at `cd9636c` and were reproduced after the environment was rebuilt. The edit-weight 1.0 baseline re-trained to the same numbers.
+All models use the same model and schedule: 0.77 M parameters, 2,500 steps, batch 48, 2 CPU threads, seed 13, noise ×1 for training. Each is evaluated with `cleaner.py evaluate` on the same 368 held-out SUMono windows (44,544 clean characters) at noise ×1, the default corruption profile. These numbers come from the code at `cd9636c`. The edit-weight 1.0 baseline was re-trained after the environment was rebuilt and reproduced exactly. The 2.0, 3.0 and 5.0 SUMono runs were not repeated after the rebuild, because their checkpoints were lost in the restore. Their numbers come from logs written before it.
 
 Earlier runs were affected by two train/eval mode bugs. Scoring left dropout on, so corrections drifted between runs. An interim checkpoint turned dropout off for the rest of training. Those checkpoints and numbers were discarded.
 
