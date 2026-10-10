@@ -63,7 +63,7 @@ python scraper.py download --limit 25 --delay 1.0      # everything accepted, po
 ### 2. Clean the OCR
 
 ```bash
-python cleaner.py train --corpus data/baseline --out models/denoiser.pt    # a clean Bengali corpus you supply
+python cleaner.py train --corpus data/baseline --out models/denoiser.pt    # a clean Bengali corpus you supply (several paths are allowed)
 python cleaner.py correct --checkpoint models/denoiser.pt                   # data/raw → data/processed/*.md
 python cleaner.py calibration                                               # concatenate for llama-imatrix
 python cleaner.py evaluate --checkpoint models/denoiser.pt --json reports/eval.json
@@ -115,6 +115,7 @@ Read this before you publish or redistribute anything.
 - **The scraper accepts only items marked public domain by default.** Checking the actual rights of each item is still your responsibility. Use `--include-unmarked` only after review.
 - **Licence.** The code, the lexicon and the documentation are licensed under GPL-3.0-only (see `LICENSE`). The repository uses the same licence as the baseline corpus below, so it does not add a conflicting one.
 - **Baseline corpus.** The denoiser is trained on eight news files from SUMono (`maamumin/SUMono`, GPL-3.0). The copy in `data/baseline/` is git-ignored and is not redistributed here. Whether a checkpoint counts as derived from that text is a legal question this project has not settled, so the conservative policy is to publish checkpoints only under GPL-3.0 and say so next to them.
+- **Extra clean text (optional, not used by default).** `data/extra/` is git-ignored. The NER-Bangla dataset (`MISabic/NER-Bangla-Dataset`, MIT) provides 70,277 Bengali sentences, which were tried as extra clean text. Its README does not state where the sentences come from, so their rights are unverified. The MIT licence covers the dataset as published, not necessarily the underlying text. Check before using it.
 - **Lexicon.** The lexicon is a hand-written seed list. It needs review by a specialist before it is relied on.
 
 ## Network and verification limits
@@ -140,7 +141,7 @@ The denoiser is trained on synthetic OCR errors applied to clean text. The error
 ## Design decisions and deviations from the brief
 
 - **Denoiser as a tagger, not a masked LM.** The brief suggested a bidirectional character-level model. Corruption changes length, so the model predicts per-character edit tags instead, and the tags come from alignment of corrupt and clean pairs.
-- **Loss weighting.** Edits are about 3% of the labels, so an unweighted loss learns to keep every character. `--edit-weight` is the knob for this, but it is a trade-off between recall and precision, and the measured results do not show a setting that improves CER.
+- **Loss weighting.** Edits are about 3% of the labels, so an unweighted loss learns to keep every character. `--edit-weight` is the knob for this, but it is a trade-off between recall and precision. The best measured setting (2.0 with the extra corpus) helps only under heavy noise, and it costs precision. See Results.
 - **Model size.** The denoiser is small: about 0.77 M parameters with the settings used in our training run (`--d-model 128 --layers 3 --heads 4 --max-len 160 --max-tags 1024`). That lets it train on a 4 GB CPU-only machine.
 - **Fine-tuning and distillation are out of scope.** A 7B teacher needs a GPU and Hugging Face access, neither of which was available.
 - **Base model.** Qwen2.5-1.5B-Instruct is used for chat because the instruct variant is needed. Qwen2.5-0.5B-Instruct is the lighter alternative.
@@ -149,27 +150,46 @@ The denoiser is trained on synthetic OCR errors applied to clean text. The error
 
 ### The denoiser does not improve OCR in any meaningful way yet
 
-Four edit-weight settings were trained with the same data, model and schedule: the eight SUMono news files (58,255 clean windows), a 0.77 M-parameter model, 2,500 steps, batch 48, 2 CPU threads and seed 13. Each was evaluated with `cleaner.py evaluate` on 368 held-out windows (44,544 clean characters) at noise ×1, where the corruption is the default profile. Repeating an evaluation gave identical output (checked on the 5.0 checkpoint).
+All models use the same model and schedule: 0.77 M parameters, 2,500 steps, batch 48, 2 CPU threads, seed 13, noise ×1 for training. Each is evaluated with `cleaner.py evaluate` on the same 368 held-out SUMono windows (44,544 clean characters) at noise ×1, the default corruption profile. These numbers come from the code at `cd9636c` and were reproduced after the environment was rebuilt. The edit-weight 1.0 baseline re-trained to the same numbers.
 
-These numbers come from the code at `cd9636c`. Earlier runs were affected by two train/eval mode bugs. Scoring left dropout on, so corrections drifted between runs. An interim checkpoint turned dropout off for the rest of training. Those checkpoints and numbers were discarded.
+Earlier runs were affected by two train/eval mode bugs. Scoring left dropout on, so corrections drifted between runs. An interim checkpoint turned dropout off for the rest of training. Those checkpoints and numbers were discarded.
 
-| `--edit-weight` | CER noisy | CER model | CER + dictionary | Edit precision | Edit recall | Predicted edits (gold 1,504) |
+**Edit weight, SUMono only**
+
+| `--edit-weight` | CER noisy | CER model | CER + dictionary | Edit precision | Edit recall | Predicted edits (gold ≈1,504) |
 |---|---|---|---|---|---|---|
 | 1.0 (default) | 0.0342 | 0.0341 | 0.0341 | 0.64 | 0.006 | 14 |
 | 2.0 | 0.0342 | 0.0341 | 0.0341 | 0.59 | 0.009 | 22 |
 | 3.0 | 0.0342 | 0.0355 | 0.0355 | 0.30 | 0.036 | 180 |
 | 5.0 | 0.0342 | 0.0405 | 0.0406 | 0.26 | 0.121 | 694 |
 
-At noise ×0.5 and ×2 the picture is the same. The default changes CER by under 0.0002, and the 3.0 and 5.0 settings make it worse, except that 3.0 is very slightly better at ×2.
+**Extra corpus (NER-Bangla sentences), edit weight 1.0 and 2.0**
+
+| Training data | `--edit-weight` | CER model | Edit precision | Edit recall | Predicted edits |
+|---|---|---|---|---|---|
+| SUMono (default) | 1.0 | 0.0341 | 0.64 | 0.006 | 14 |
+| SUMono + NER-Bangla | 1.0 | 0.0341 | 1.00 | 0.002 | 3 |
+| SUMono + NER-Bangla | 2.0 | 0.0340 | 0.54 | 0.019 | 54 |
+
+**Paired comparison against the noisy input.** Per-window character errors were compared on the same windows. The 95% intervals come from a bootstrap over windows, and negative numbers mean fewer errors.
+
+| Noise | Model | Character change (total) | 95% interval | Windows better / worse |
+|---|---|---|---|---|
+| ×1 | SUMono, 1.0 (default) | −5 | −12 to +2 | 9 / 4 |
+| ×1 | SUMono + NER, 2.0 | −7 | −20 to +6 | 26 / 19 |
+| ×2 | SUMono, 1.0 (default) | −8 | −15 to −2 | 10 / 2 |
+| ×2 | SUMono + NER, 2.0 | −23 | −41 to −6 | 40 / 21 |
 
 What these numbers show:
 
-- **The best setting gains almost nothing.** At the default weight, CER drops by 0.00011 on the ×1 set. That is about 5 characters out of 44,544. Precision is 0.64, but it rests on only 14 edits, and no confidence interval was computed.
-- **Raising the weight trades precision for recall, and CER gets worse.** Recall rises from 0.006 to 0.121, while precision falls from 0.64 to 0.26 and CER rises from 0.0341 to 0.0405.
-- **The default model has learned the label prior.** About 96.6% of evaluation labels are KEEP, meaning "leave this character alone". Predicting KEEP everywhere scores 96.61% label accuracy on those labels. The default model scores 96.62%.
-- **The dictionary anchor has no measurable effect on this synthetic set.** CER is 0.0341 with and without it, and term recall is 0.714 in both cases. The synthetic noise rarely damages lexicon words, so this test cannot show the anchor's value.
+- **The default gains almost nothing.** At noise ×1 it changes total errors by −5 characters out of 44,544. At ×2 the change of −8 is significant, but it is still a very small improvement.
+- **The best candidate helps only under heavy noise.** SUMono + NER at weight 2.0 is significantly better at ×2, but at ×1 the interval includes zero. Its precision is 0.54, so about half of its edits are wrong. It does not meet the bar of "CER improves and precision holds" that the default was held to.
+- **Raising the weight trades precision for recall, and CER gets worse.** With SUMono alone, recall rises from 0.006 to 0.121 at weight 5.0, while precision falls from 0.64 to 0.26 and CER rises from 0.0341 to 0.0405.
+- **The default model has learned the label prior.** About 96.6% of the evaluation labels are KEEP, meaning "leave this character alone". Predicting KEEP everywhere scores 96.61% label accuracy on those labels. The default model scores 96.62%.
+- **The NER sentences did not help at the default weight.** At weight 1.0 they make the model almost never edit: 3 edits, against 14 with SUMono alone.
+- **The dictionary anchor has no measurable effect on this synthetic set.** CER is the same with and without it, and term recall is unchanged. The synthetic noise rarely damages lexicon words, so this test cannot show the anchor's value.
 
-The default `--edit-weight` stays at 1.0. It is the most precise setting tried, and it does not make the text worse. But **the correction stage is experimental** and should not be trusted to fix OCR yet. The pipeline, scraping, quantization and chat app are the parts that work end to end. A useful denoiser probably needs more clean Bengali text than the eight files available here, longer training, and noise levels calibrated against real scans rather than synthetic corruption.
+The default `--edit-weight` stays at 1.0 with the SUMono baseline only. It is the most precise setting tried, and it does not make the text worse. But **the correction stage is experimental** and should not be trusted to fix OCR yet. The pipeline, scraping, quantization and chat app are the parts that work end to end. A useful denoiser probably needs more clean Bengali text than is available here, longer training, and noise levels calibrated against real scans rather than synthetic corruption.
 
 ## Development
 
