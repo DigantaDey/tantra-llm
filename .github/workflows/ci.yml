@@ -68,6 +68,29 @@ jobs:
       - name: pytest
         run: python -m pytest -q
 
+  live-archive:
+    name: Live archive.org integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Only the core dependencies: the scraper and the live tests need no PyTorch.
+      - name: Install project and pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      # The contract with archive.org - query shape, JSON field types, MD5-verified
+      # downloads - is checked against the live service on every PR, with retries
+      # to tolerate transient archive.org hiccups.
+      - name: Live tests (search, metadata, MD5-verified download)
+        run: python -m pytest -m live tests/test_live_archive.py -v
+
   test-macos:
     name: Tests (macOS, Apple Silicon)
     runs-on: macos-14

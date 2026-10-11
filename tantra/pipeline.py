@@ -26,11 +26,19 @@ class DocumentResult:
 
 def correct_document(
     raw_text: str,
-    corrector: Corrector,
+    corrector: Corrector | None,
     meta: DocumentMeta,
     *,
     use_dictionary: bool = True,
 ) -> DocumentResult:
+    """Normalise an archive OCR document and (optionally) denoise it.
+
+    ``corrector=None`` runs the structural pipeline only: Unicode normalisation,
+    page splitting, page-number stripping and reflow into Markdown and plain
+    text. That is the zero-setup path - it needs no checkpoint and no clean
+    baseline corpus, so a fresh checkout can go from ``scraper.py download`` to
+    calibration data in one straight line.
+    """
     raw_pages = split_pages(raw_text)
     page_lines: list[list[str]] = []
     for raw in raw_pages:
@@ -42,7 +50,7 @@ def correct_document(
     slots: list[tuple[int, int]] = []  # (page index, line index) of every corrected line
     for pi, lines in enumerate(page_lines):
         for li, line in enumerate(lines):
-            if bengali_ratio(line) >= MIN_BENGALI_RATIO_TO_CORRECT:
+            if corrector is not None and bengali_ratio(line) >= MIN_BENGALI_RATIO_TO_CORRECT:
                 to_correct.append(line)
                 slots.append((pi, li))
 
@@ -64,7 +72,7 @@ def correct_document(
         "lines_corrected_by_model": len(to_correct),
         "windows_changed": stats.changed_windows,
         "dictionary_anchors": stats.dictionary_anchors,
-        "dictionary_used": "yes" if use_dictionary else "no",
+        "dictionary_used": "no model (structure only)" if corrector is None else ("yes" if use_dictionary else "no"),
     }
     markdown = render_document(meta, pages_md, corrections)
     return DocumentResult(

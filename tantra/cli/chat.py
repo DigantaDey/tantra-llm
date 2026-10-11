@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from tantra import ui
-from tantra.config import GGUF_DIR, default_budget_mb
+from tantra.config import GGUF_DIR, PROCESSED_DIR, default_budget_mb
 from tantra.fetch import MODELS
 from tantra.llm import (
     DEFAULT_SYSTEM_PROMPT,
@@ -21,6 +21,7 @@ from tantra.llm import (
     device_label,
 )
 from tantra.memory import PeakMonitor, physical_cores, rss_mb
+from tantra.retrieval import CorpusIndex, build_grounded_prompt, format_sources
 
 HELP = """\
 [bold]Commands[/]
@@ -56,6 +57,22 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--repeat-penalty", type=float, default=1.1)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--system", help="override the system prompt")
+    p.add_argument(
+        "--ground",
+        nargs="?",
+        const=str(PROCESSED_DIR),
+        metavar="DIR",
+        help=(
+            f"ground answers in the cleaned archive corpus (default dir: {PROCESSED_DIR}). "
+            "Retrieved passages are cited as [1], [2], …"
+        ),
+    )
+    p.add_argument(
+        "--ground-chars",
+        type=int,
+        default=2400,
+        help="character budget for retrieved passages per answer (default: 2400)",
+    )
     p.add_argument("--prompt", help="answer one question and exit (non-interactive)")
     p.add_argument(
         "--gpu-layers",
@@ -81,18 +98,32 @@ def _footer(tokens: int, seconds: float, peak_mb: float, budget: float) -> str:
     )
 
 
-def _answer(session: ChatSession, text: str, params: GenerationParams, budget: float) -> None:
+def _answer(
+    session: ChatSession,
+    text: str,
+    params: GenerationParams,
+    budget: float,
+    *,
+    index: CorpusIndex | None = None,
+    ground_chars: int = 2400,
+) -> None:
+    hits = index.search(text, k=3) if index is not None else []
+    prompt = build_grounded_prompt(DEFAULT_SYSTEM_PROMPT, hits, max_chars=ground_chars) if hits else None
     ui.console.print()
+    if hits:
+        ui.info(f"grounded in {len(hits)} passage(s) from {len({h.passage.doc_id for h in hits})} document(s)")
     started = time.perf_counter()
     produced = 0
     with PeakMonitor() as mon:
-        for piece in session.ask(text, params):
+        for piece in session.ask(text, params, system_prompt=prompt):
             produced += 1
             sys.stdout.write(piece)
             sys.stdout.flush()
     seconds = time.perf_counter() - started
     ui.console.print()
     ui.console.print(_footer(produced, seconds, mon.peak_mb, budget))
+    if hits:
+        ui.console.print(f"[{ui.MUTED}]উৎস {format_sources(hits)}[/]")
 
 
 def _enable_line_editing() -> None:
@@ -162,8 +193,19 @@ def main(argv: list[str] | None = None) -> int:
 
     session = ChatSession(backend, system_prompt=args.system or DEFAULT_SYSTEM_PROMPT)
 
+    index: CorpusIndex | None = None
+    if args.ground is not None:
+        index = CorpusIndex.from_dir(Path(args.ground))
+        if not index:
+            ui.warn(f"no processed .txt corpus found in {args.ground} - answers will not be grounded")
+            ui.info("run `python scraper.py download` and `python cleaner.py correct --input data/raw` first")
+            index = None
+        else:
+            docs = len(index.document_ids)
+            ui.ok(f"grounded mode: {docs} document(s), {len(index)} indexed passages from {args.ground}")
+
     if args.prompt:
-        _answer(session, args.prompt, params, budget_mb)
+        _answer(session, args.prompt, params, budget_mb, index=index, ground_chars=args.ground_chars)
         return 0
 
     _enable_line_editing()
@@ -186,20 +228,19 @@ def main(argv: list[str] | None = None) -> int:
             ui.ok("conversation cleared")
             continue
         if text == "/stats":
-            ui.console.print(
-                ui.kv_table(
-                    [
-                        ("device", device_label(backend.gpu_layers)),
-                        ("resident memory", f"{rss_mb() / 1024:.2f} GB"),
-                        ("budget", f"{budget_mb / 1024:.1f} GB"),
-                        ("turns kept", str(len(session.history) // 2)),
-                        ("tokens generated", f"{session.tokens_generated:,}"),
-                    ]
-                )
-            )
+            rows = [
+                ("device", device_label(backend.gpu_layers)),
+                ("resident memory", f"{rss_mb() / 1024:.2f} GB"),
+                ("budget", f"{budget_mb / 1024:.1f} GB"),
+                ("turns kept", str(len(session.history) // 2)),
+                ("tokens generated", f"{session.tokens_generated:,}"),
+            ]
+            if index is not None:
+                rows.append(("corpus", f"{len(index.document_ids)} docs · {len(index)} passages"))
+            ui.console.print(ui.kv_table(rows))
             continue
         try:
-            _answer(session, text, params, budget_mb)
+            _answer(session, text, params, budget_mb, index=index, ground_chars=args.ground_chars)
         except KeyboardInterrupt:
             ui.console.print(f"\n[{ui.WARN}]generation stopped[/]")
         except ValueError as exc:

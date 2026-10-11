@@ -37,8 +37,16 @@ def test_query_contains_language_year_and_terms():
     q = build_query((1870, 1935))
     assert "mediatype:texts" in q
     assert "year:[1870 TO 1935]" in q
-    assert '"Bengali"' in q and '"Bangla"' in q
+    assert '"Bengali"' in q and '"Bangla"' in q and '"ben"' in q
     assert '"tantra"' in q and "তন্ত্র" in q and "সাধন" in q
+
+
+def test_query_drops_the_year_clause_when_undated_items_are_allowed():
+    with_year = build_query((1870, 1935))
+    without_year = build_query((1870, 1935), allow_undated=True)
+    assert "year:" in with_year
+    assert "year:" not in without_year
+    assert "language:" in without_year  # the other clauses stay
 
 
 def test_query_rejects_inverted_range():
@@ -52,6 +60,26 @@ def test_parse_candidate_normalises_fields():
     assert c.languages == ("bengali", "bangla", "ben")
     assert c.year == 1899
     assert c.title == "সাধনতত্ত্ব"
+
+
+def test_parse_candidate_survives_live_solr_shapes():
+    """Regression: live archive.org search returns `year` as a JSON number and
+    `language` with stray punctuation ("Bengali."); the old parser crashed or
+    mis-parsed both."""
+    c = parse_candidate(
+        {
+            "identifier": "in.ernet.dli.2015.324631",
+            "title": "Adhyatma-sadhana",
+            "year": 1917,  # int, as returned by advancedsearch.php
+            "language": "Bengali.",
+            "subject": "tantra",
+            "licenseurl": None,
+        }
+    )
+    assert c.year == 1917
+    assert c.languages == ("bengali",)
+    assert c.subjects == ("tantra",)
+    assert c.licenseurl == ""
 
 
 def test_parse_candidate_without_year():
@@ -76,10 +104,28 @@ def test_rejects_year_outside_range():
     assert not dec.accepted and any("outside" in r for r in dec.reasons)
 
 
-def test_rejects_unmarked_licence_by_default_and_allows_override():
-    cand = _cand(licenseurl="", rights="All rights reserved")
-    assert not evaluate(cand).accepted
-    assert evaluate(cand, require_public_domain=False).accepted
+def test_unmarked_items_are_accepted_by_default_and_gated_by_marked_policy():
+    """Default policy accepts unmarked scans (the licence travels with the data);
+    --require-marked-pd (RIGHTS_MARKED) restores the conservative behaviour."""
+    cand = _cand(licenseurl="", rights="")
+    assert evaluate(cand).accepted  # default: RIGHTS_ANY
+    dec = evaluate(cand, rights_policy="marked")
+    assert not dec.accepted and any("public domain" in r for r in dec.reasons)
+    # a PD-marked item passes both policies
+    assert evaluate(_cand(), rights_policy="marked").accepted
+    # a non-PD licence is also accepted by default (recorded, not trusted)
+    assert evaluate(_cand(licenseurl="https://creativecommons.org/licenses/by-nd/3.0/")).accepted
+    with pytest.raises(ValueError):
+        evaluate(_cand(), rights_policy="nonsense")
+
+
+def test_rights_helpers_describe_the_licence_basis():
+    from tantra.scraper import describe_rights, is_marked_public_domain
+
+    assert is_marked_public_domain(_cand())
+    assert "marked public domain" in describe_rights(_cand())
+    assert "verify rights" in describe_rights(_cand(licenseurl="", rights=""))
+    assert "on record" in describe_rights(_cand(licenseurl="https://creativecommons.org/licenses/by-nd/3.0/"))
 
 
 def test_rejects_when_no_keyword():
@@ -134,6 +180,18 @@ def test_search_sorts_accepted_first_and_respects_limit():
     assert archive.search_queries and "mediatype:texts" in archive.search_queries[0]
 
 
+def test_search_without_undated_opt_in_keeps_the_year_filter():
+    undated = {**GOOD, "identifier": "undated1", "year": None}
+    with_opt_in = FakeArchive([undated])
+    rows = search_candidates(with_opt_in, limit=5, allow_undated=True)
+    assert "year:" not in with_opt_in.search_queries[0]
+    assert rows[0][1].accepted
+    without_opt_in = FakeArchive([undated])
+    rows = search_candidates(without_opt_in, limit=5)
+    assert "year:" in without_opt_in.search_queries[0]
+    assert not rows[0][1].accepted
+
+
 def test_search_skips_records_without_identifier():
     rows = search_candidates(FakeArchive([{"title": "no id"}]), limit=5)
     assert rows == []
@@ -159,7 +217,15 @@ def _archive_with_item(ident="sadhana1898"):
 def test_download_writes_files_metadata_and_manifest(tmp_path, monkeypatch):
     archive = _archive_with_item()
     rows = search_candidates(archive, limit=5)
-    results = download_items(archive, rows, out_dir=tmp_path, delay=0, sleep=lambda s: None, log=lambda m: None)
+    results = download_items(
+        archive,
+        rows,
+        out_dir=tmp_path,
+        formats=("djvu_txt", "pdf", "djvu"),
+        delay=0,
+        sleep=lambda s: None,
+        log=lambda m: None,
+    )
     assert [r.status for r in results] == ["downloaded"]
     item = tmp_path / "sadhana1898"
     assert (item / "sadhana1898_djvu.txt").read_bytes().startswith("সাধনা".encode())
@@ -170,8 +236,64 @@ def test_download_writes_files_metadata_and_manifest(tmp_path, monkeypatch):
         "pdf": "sadhana1898.pdf",
         "djvu": "sadhana1898.djvu",
     }
+    assert meta["rights_basis"] == "marked public domain on archive.org"
     manifest = (tmp_path / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(manifest[0])["status"] == "downloaded"
+
+
+def test_download_default_formats_are_djvu_txt_and_pdf(tmp_path):
+    """Live scans carry no .djvu file, so the default keeps to what exists."""
+    archive = _archive_with_item()
+    rows = search_candidates(archive, limit=5)
+    results = download_items(archive, rows, out_dir=tmp_path, delay=0, sleep=lambda s: None, log=lambda m: None)
+    assert [r.status for r in results] == ["downloaded"]
+    assert results[0].files == {"djvu_txt": "sadhana1898_djvu.txt", "pdf": "sadhana1898.pdf"}
+    assert results[0].missing == []
+    assert not (tmp_path / "sadhana1898" / "sadhana1898.djvu").exists()
+
+
+def test_download_reports_no_files_when_the_item_has_nothing_usable(tmp_path):
+    archive = FakeArchive([{**GOOD, "identifier": "emptyitem"}], {"emptyitem": [("thumb.jpg", "Item Tile", b"x")]})
+    rows = search_candidates(archive, limit=5)
+    results = download_items(archive, rows, out_dir=tmp_path, delay=0, sleep=lambda s: None, log=lambda m: None)
+    assert [r.status for r in results] == ["no-files"]
+    assert results[0].missing == ["djvu_txt", "pdf"]
+    # provenance is still recorded so a later run knows the item was visited
+    assert (tmp_path / "emptyitem" / "metadata.json").exists()
+    manifest = json.loads((tmp_path / "manifest.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert manifest["status"] == "no-files"
+
+
+def test_download_records_the_rights_basis_for_unmarked_items(tmp_path):
+    archive = _archive_with_item()
+    archive.records[0] = {**archive.records[0], "licenseurl": "", "rights": ""}
+    rows = search_candidates(archive, limit=5)
+    results = download_items(
+        archive, rows, out_dir=tmp_path, formats=("djvu_txt",), delay=0, sleep=lambda s: None, log=lambda m: None
+    )
+    assert [r.status for r in results] == ["downloaded"]
+    meta = json.loads((tmp_path / "sadhana1898" / "metadata.json").read_text(encoding="utf-8"))
+    assert meta["rights_basis"] == "no licence marked on archive.org - verify rights before redistributing"
+
+
+def test_download_emits_progress_hooks(tmp_path):
+    archive = _archive_with_item()
+    rows = search_candidates(archive, limit=5)
+    starts: list[tuple[str, str, int | None]] = []
+    progress: list[tuple[int, int | None]] = []
+    download_items(
+        archive,
+        rows,
+        out_dir=tmp_path,
+        formats=("djvu_txt",),
+        delay=0,
+        sleep=lambda s: None,
+        log=lambda m: None,
+        on_file_start=lambda ident, name, size: starts.append((ident, name, size)),
+        on_progress=lambda done, total: progress.append((done, total)),
+    )
+    assert starts == [("sadhana1898", "sadhana1898_djvu.txt", len("সাধনা তন্ত্র\fদ্বিতীয় পৃষ্ঠা".encode()))]
+    assert progress and progress[-1][0] == progress[-1][1]
 
 
 def test_download_is_resumable_and_skips_verified_files(tmp_path):
