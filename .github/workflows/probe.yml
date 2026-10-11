@@ -1,0 +1,22 @@
+name: Live probe (temporary diagnostic)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["arena/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe live archive.org
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install requests internetarchive
+      - run: python probe_archive.py
