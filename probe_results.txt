@@ -1,0 +1,74 @@
+FULL QUERY:
+  mediatype:texts AND language:("Bengali" OR "Bangla" OR "ben" OR "beng") AND year:[1870 TO 1935] AND (title:("tantra" OR "tantric" OR "tantrik" OR "sadhan" OR "sadhana" OR "sadhaka" OR "shakta" OR "mantra" OR "তন্ত্র" OR "তান্ত্রিক" OR "সাধন" OR "সাধনা" OR "সাধক" OR "শাক্ত" OR "মন্ত্র") OR subject:("tantra" OR "tantric" OR "tantrik" OR "sadhan" OR "sadhana" OR "sadhaka" OR "shakta" OR "mantra" OR "তন্ত্র" OR "তান্ত্রিক" OR "সাধন" OR "সাধনা" OR "সাধক" OR "শাক্ত" OR "মন্ত্র"))
+
+[full query] http=200 numFound=78 docs_returned=8 error=None
+    - '20260811_20260811_2222' year=1887 lang='ben' lic='None' title='নিত্য তন্ত্র ১ম ও ২য় কল্প একত্রে'
+    - 'in.ernet.dli.2015.324631' year=1917 lang='ben' lic='None' title='Adhyatma-sadhana'
+    - 'in.ernet.dli.2015.340022' year=1927 lang='ben' lic='None' title='Sadhan Pradip Ed. 3'
+    - 'dli.bengal.10689.8563' year=1909 lang='ben' lic='None' title='Rasatattwa O Shakti-Sadhana - 2nd ed. রসতত্ত্ব ও শক্তি-সাধনা'
+    - 'in.ernet.dli.2015.291026' year=1914 lang='ben' lic='None' title='Brammhosamajer Sadhyo O Sadhana'
+
+[english terms only] http=200 numFound=41 docs_returned=8 error=None
+    - '20260811_20260811_2222' year=1887 lang='ben' lic='None' title='নিত্য তন্ত্র ১ম ও ২য় কল্প একত্রে'
+    - 'dli.bengal.10689.8270' year=1908 lang='ben' lic='None' title='Diksha O Sadhana - 3rd ed. দীক্ষা ও সাধনা - ৩য় সং'
+    - '20260813_20260813_1901' year=1891 lang='ben' lic='None' title='পীঠমালা মহাতন্ত্র'
+    - 'in.ernet.dli.2015.356460' year=1895 lang='ben' lic='None' title='Sadhana Barsho.4, Part.1(1301 Agrahayan-1302 Baishakh)'
+    - 'in.ernet.dli.2015.357423' year=1913 lang='ben' lic='None' title='Prasuti-tantra'
+[simple tantra] http=200 numFound=0 docs_returned=0 error=None
+[no year clause] http=200 numFound=0 docs_returned=0 error=None
+[no terms (count only)] http=200 numFound=156 docs_returned=8 error=None
+    - 'deliveranceofnin00unse' year=1877 lang='Bengali' lic='None' title='… deliverance of Nineveh …'
+    - 'dli.bengal.10689.18441' year=1928 lang='Bengali' lic='None' title='MAHABHARAT, ADIPARBA মহাভারত, আদিপর্ব'
+    - 'holybibleinbenga00brit' year=1909 lang='Bengali.' lic='None' title='The Holy Bible in Bengali : containing the Old and New Testa'
+    - 'westbengallegislature.council.502.2_502__1924__vol_XV' year=1924 lang=['English', 'Bengali'] lic='http://creativecommons.org/licenses/publicdomain/' title='Proceedings: Bengal Legislative Council: Official Report 192'
+    - 'westbengallegislature.council.520.2_520__1927__vol_XXVII' year=1927 lang=['English', 'Bengali'] lic='http://creativecommons.org/licenses/publicdomain/' title='Proceedings: Bengal Legislative Council: Official Report 192'
+[language only (count)] http=200 numFound=54946 docs_returned=8 error=None
+    - 'ShamWillNotBowDown_201707' year=None lang='Bengali' lic='None' title='শাম আল্লাহ ব্যাতীত কারো সামনে মাথা নত করবে না - শায়খ যাওয়াহি'
+    - 'rafah_alquds' year=2018 lang='Bengali' lic='None' title='রাফাহ গণহত্যার প্রতিশোধ নেওয়ার জন্য আমরা কি লেবাননের শরণার্থ'
+    - 'fadel_20180901' year=2018 lang='Bengali' lic='None' title='আল ফিরদাউস নিউজ বুলেটিন। আগস্ট ৪র্থ সপ্তাহ ২০১৮ ইংরেজী।'
+    - '7ghgjjg5hhbR' year=2002 lang='ben' lic='http://creativecommons.org/publicdomain/zero/1.0/' title='7ghgjjg 5hhb R'
+    - 'KufriAktiGurutoroOporadhRKafirKokhonoNiroporadhNoy2ndEdition' year=None lang='ben' lic='None' title='Kufri Akti Gurutoro Oporadh R Kafir Kokhono Niroporadh Noy 2'
+[no language filter] http=200 numFound=117 docs_returned=8 error=None
+    - 'dli.ministry.03463' year=1928 lang='eng' lic='None' title='Kamaratna tantra'
+    - 'spiritual-underachievers_202406' year=1933 lang='eng' lic='https://creativecommons.org/publicdomain/mark/1.0/' title='Spiritual Underachievers'
+    - 'propaganda-and-national-power-berserker-books' year=1933 lang='eng' lic='https://creativecommons.org/publicdomain/mark/1.0/' title='Propaganda And National Power (Berserker Books)'
+    - '20260813_20260813_1901' year=1891 lang='ben' lic='None' title='পীঠমালা মহাতন্ত্র'
+    - 'in.ernet.dli.2015.311356' year=1899 lang='san' lic='None' title='Shyama Rahasya Tantra'
+
+[unicode single term] http=200 numFound=0 docs_returned=0 error=None
+[unicode OR group] http=200 numFound=69 docs_returned=8 error=None
+    - '20260411_20260411_1827' year=None lang=None lic='None' title='রাধাতন্ত্রম্'
+    - '20260811_20260811_2222' year=1887 lang='ben' lic='None' title='নিত্য তন্ত্র ১ম ও ২য় কল্প একত্রে'
+    - '20250921_20250921_1219' year=2025 lang='ben' lic='None' title='সহি নূরানী ওজিফা'
+    - 'dli.bengal.10689.19984' year=1930 lang='other' lic='None' title='BHARATER SADHANA BARSHA. 1, NO. 7TH ভারতের সাধনা বর্ষ ১,সংখ্'
+    - 'dli.bengal.10689.8563' year=1909 lang='ben' lic='None' title='Rasatattwa O Shakti-Sadhana - 2nd ed. রসতত্ত্ব ও শক্তি-সাধনা'
+
+[lang survey] http=200 numFound=117 docs_returned=20 error=None
+    - '20260811_20260811_2222' year=1887 lang='ben' lic='None' title='নিত্য তন্ত্র ১ম ও ২য় কল্প একত্রে'
+    - 'dli.ministry.03463' year=1928 lang='eng' lic='None' title='Kamaratna tantra'
+    - 'in.ernet.dli.2015.546693' year=1930 lang='san' lic='None' title='Prashuti Tantra'
+    - 'spiritual-underachievers_202406' year=1933 lang='eng' lic='https://creativecommons.org/publicdomain/mark/1.0/' title='Spiritual Underachievers'
+    - 'in.ernet.dli.2015.357423' year=1913 lang='ben' lic='None' title='Prasuti-tantra'
+  languages seen: {"ben": 6, "eng": 5, "san": 5, "fre": 1, "Gujarati": 1, "San": 2}
+  licences seen: {"NONE": 13, "https://creativecommons.org/publicdomain/mark/1.0/": 3, "http://creativecommons.org/publicdomain/mark/1.0/": 3, "http://creativecommons.org/licenses/by-nd/3.0/": 1}
+
+--- internetarchive library ---
+ia version: 5.11.1
+    ia -> 'in.ernet.dli.2015.324631' 'Adhyatma-sadhana'
+    ia -> 'in.ernet.dli.2015.340022' 'Sadhan Pradip Ed. 3'
+    ia -> 'in.ernet.dli.2015.291808' 'Sadhan Samar Vol. 3'
+    ia -> 'in.ernet.dli.2015.291026' 'Brammhosamajer Sadhyo O Sadhana'
+    ia -> 'in.ernet.dli.2015.291553' 'Mukti Ebang Tather Sadhan Sambandhe Hindu Shastrer'
+    ia -> 'dli.bengal.10689.8270' 'Diksha O Sadhana - 3rd ed. দীক্ষা ও সাধনা - ৩য় সং'
+    ia -> '20260813_20260813_1901' 'পীঠমালা মহাতন্ত্র'
+    ia -> 'in.ernet.dli.2015.356460' 'Sadhana Barsho.4, Part.1(1301 Agrahayan-1302 Baish'
+    ia -> 'in.ernet.dli.2015.357423' 'Prasuti-tantra'
+    ia -> 'in.ernet.dli.2015.315626' 'Sadhana O Upadesh'
+    ia results: 10 (numFound=78)
+
+--- metadata/files/download path ---
+[pick id] http=200 numFound=0 docs_returned=0 error=None
+  probing item: sadhanaammrit00ramauoft
+  metadata keys sample: []
+  language=None year=None date=None licenseurl=None rights=None
+  djvu.txt files: []
