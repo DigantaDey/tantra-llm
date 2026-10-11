@@ -117,3 +117,41 @@ def test_bench_missing_model_is_a_clean_failure(tmp_path, capsys):
     code = bench_cli.main(["--model", str(tmp_path / "absent.gguf"), "--reports", str(tmp_path)])
     assert code == 1
     assert "no GGUF model found" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------- first-run guidance
+def test_chat_without_any_model_points_to_the_fetch_command(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)  # a fresh checkout has no models/gguf
+    code = chat_cli.main([])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "fetch_model.py" in out and "setup.sh" in out
+    assert "no .gguf model found" in out
+
+
+def test_bench_without_any_model_points_to_the_fetch_command(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    code = bench_cli.main(["--reports", str(tmp_path)])
+    assert code == 1
+    assert "fetch_model.py" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------- gpu layers
+def test_gpu_layers_flag_reaches_the_backend(fake_model, backends, capsys):
+    chat_cli.main(["--model", str(fake_model), "--gpu-layers", "7", "--prompt", "হ্যালো"])
+    assert backends[-1].gpu_layers == 7
+    assert "GPU (7 layers)" in capsys.readouterr().out
+
+
+def test_gpu_layers_auto_default_and_cpu_label(fake_model, backends, capsys):
+    chat_cli.main(["--model", str(fake_model), "--gpu-layers", "0", "--prompt", "হ্যালো"])
+    assert backends[-1].gpu_layers == 0
+    assert "CPU" in capsys.readouterr().out
+
+
+def test_bench_gpu_layers_flag_reaches_the_backend(fake_model, backends, tmp_path):
+    code = bench_cli.main(
+        ["--model", str(fake_model), "--gpu-layers", "3", "--budget-mb", "100000", "--reports", str(tmp_path)]
+    )
+    assert code == 0
+    assert backends[-1].gpu_layers == 3

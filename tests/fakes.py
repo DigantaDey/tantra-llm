@@ -94,12 +94,20 @@ class EchoBackend:
     context_size = 512
 
     def __init__(
-        self, model_path, *, n_ctx: int = 2048, threads: int = 4, seed: int = 0, reply: str = "উত্তর একটি দুই"
+        self,
+        model_path,
+        *,
+        n_ctx: int = 2048,
+        threads: int = 4,
+        seed: int = 0,
+        n_gpu_layers: int | None = None,
+        reply: str = "উত্তর একটি দুই",
     ) -> None:
         self.model_path = model_path
         self.n_ctx = n_ctx
         self.threads = threads
         self.seed = seed
+        self.gpu_layers = -1 if n_gpu_layers is None else n_gpu_layers
         self.reply = reply
         self.calls: list[list[dict[str, str]]] = []
 

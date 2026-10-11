@@ -29,6 +29,7 @@ all = ["tantra-llm[train,llm,convert]"]
 [project.scripts]
 tantra-scrape = "tantra.cli.scrape:main"
 tantra-clean = "tantra.cli.clean:main"
+tantra-fetch = "tantra.cli.fetch:main"
 
 [tool.setuptools.packages.find]
 include = ["tantra*"]
