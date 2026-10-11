@@ -1,120 +1,141 @@
-"""Temporary diagnostic: probe live archive.org behaviour. NOT part of the final PR."""
+"""Temporary diagnostic #2: probe live archive.org download path. NOT part of the final PR."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import urllib.parse
 
-import requests  # noqa: F401 (kept: available in CI probe)
+import requests
 
-from tantra.scraper import build_query
+from tantra.scraper import build_query, evaluate, parse_candidate
 
 BASE = "https://archive.org"
-UA = {"User-Agent": "tantra-llm-probe/0.1 (diagnostic; contact: ci)"}
+UA = {"User-Agent": "tantra-llm-probe/0.1 (diagnostic)"}
 
 
-def adv_search(q: str, rows: int = 8, fields: list[str] | None = None, label: str = "") -> dict:
-    params = {
-        "q": q,
-        "rows": str(rows),
-        "page": "1",
-        "output": "json",
-    }
+def adv_search(q: str, rows: int = 100, fields: list[str] | None = None) -> dict:
+    params = {"q": q, "rows": str(rows), "page": "1", "output": "json"}
     for i, f in enumerate(fields or ["identifier", "title", "year", "language", "licenseurl", "subject"]):
         params[f"fl[{i}]"] = f
     url = f"{BASE}/advancedsearch.php?{urllib.parse.urlencode(params)}"
-    try:
-        r = requests.get(url, headers=UA, timeout=60)
-        j = r.json()
-    except Exception as exc:
-        print(f"[{label}] HTTP FAILED: {type(exc).__name__}: {exc}")
+    r = requests.get(url, headers=UA, timeout=60)
+    j = r.json()
+    if j.get("error"):
+        print(f"SEARCH ERROR: {j['error']}")
         return {}
-    err = j.get("error")
-    docs = j.get("response", {}).get("docs", [])
-    num = j.get("response", {}).get("numFound")
-    print(f"[{label}] http={r.status_code} numFound={num} docs_returned={len(docs)} error={err}")
-    for d in docs[:5]:
-        print(f"    - {d.get('identifier')!r} year={d.get('year')!r} lang={d.get('language')!r} lic={str(d.get('licenseurl'))[:60]!r} title={str(d.get('title'))[:60]!r}")
     return j
 
 
 def main() -> None:
-    q_full = build_query()
-    print(f"FULL QUERY:\n  {q_full}\n")
-    adv_search(q_full, label="full query")
-    print()
+    q = build_query()
+    j = adv_search(q, rows=100)
+    docs = j.get("response", {}).get("docs", [])
+    print(f"full query numFound={j['response']['numFound']} docs={len(docs)}")
 
-    # Which clause kills it?
-    adv_search('mediatype:texts AND language:("Bengali" OR "Bangla" OR "ben" OR "beng") AND year:[1870 TO 1935] AND (title:(tantra OR tantrik OR sadhana OR mantra) OR subject:(tantra OR sadhana OR mantra))', label="english terms only")
-    adv_search('mediatype:texts AND language:("Bengali") AND year:[1870 TO 1935] AND (title:tantra OR subject:tantra)', label="simple tantra")
-    adv_search('mediatype:texts AND language:("Bengali" OR "Bangla") AND (title:tantra OR subject:tantra)', label="no year clause")
-    adv_search('mediatype:texts AND language:"Bengali" AND year:[1870 TO 1935]', label="no terms (count only)")
-    adv_search('mediatype:texts AND language:("Bengali" OR "Bangla" OR "ben" OR "beng")', label="language only (count)")
-    adv_search('mediatype:texts AND year:[1870 TO 1935] AND (title:tantra OR subject:tantra)', label="no language filter")
-    print()
+    # 1) acceptance with an age-based PD policy simulation (year<=1930)
+    accepted_age = 0
+    accepted_marked = 0
+    undated = 0
+    for d in docs:
+        c = parse_candidate(d)
+        dec_marked = evaluate(c, require_public_domain=True)
+        if dec_marked.accepted:
+            accepted_marked += 1
+        if c.year is None:
+            undated += 1
+        dec_age = evaluate(c, require_public_domain=True)
+        if (not dec_age.accepted) and dec_age.reasons == ("not marked public domain (review manually with --include-unmarked)",) and (c.year or 0) <= 1930:
+            accepted_age += 1
+        elif dec_age.accepted:
+            accepted_age += 1
+    print(f"accepted with marked-PD policy: {accepted_marked}")
+    print(f"accepted with age<=1930 policy: {accepted_age}")
+    print(f"undated among docs: {undated}")
 
-    # Bengali unicode terms
-    adv_search('mediatype:texts AND language:"Bengali" AND (title:"তন্ত্র" OR subject:"তন্ত্র")', label="unicode single term")
-    adv_search('mediatype:texts AND (title:("তন্ত্র" OR "সাধনা") OR subject:("তন্ত্র" OR "সাধনা"))', label="unicode OR group")
-    print()
+    # 2) file inventory for the first 12 docs: which formats exist?
+    print("\n--- file inventory ---")
+    have_djvu_txt = 0
+    have_pdf = 0
+    checked = 0
+    sample_ids = []
+    for d in docs[:12]:
+        ident = d["identifier"]
+        try:
+            m = requests.get(f"{BASE}/metadata/{ident}", headers=UA, timeout=60).json()
+        except Exception as exc:
+            print(f"  {ident}: metadata FAILED {exc}")
+            continue
+        checked += 1
+        files = m.get("files", [])
+        names = [f.get("name", "") for f in files]
+        djvu_txt = [n for n in names if n.endswith("_djvu.txt")]
+        pdfs = [n for n in names if n.lower().endswith(".pdf")]
+        djvus = [n for n in names if n.lower().endswith(".djvu")]
+        if djvu_txt:
+            have_djvu_txt += 1
+        if pdfs:
+            have_pdf += 1
+        print(f"  {ident}: files={len(files)} djvu_txt={djvu_txt[:1]} pdf={len(pdfs)} djvu={len(djvus)} formats={sorted({f.get('format') for f in files})[:8]}")
+        if djvu_txt and len(sample_ids) < 3:
+            sample_ids.append((ident, djvu_txt[0], next(f for f in files if f["name"] == djvu_txt[0])))
+    print(f"  => {have_djvu_txt}/{checked} items have _djvu.txt, {have_pdf}/{checked} have pdf")
 
-    # What languages do Bengali-ish tantra items actually declare?
-    j = adv_search('mediatype:texts AND (title:tantra OR subject:tantra) AND year:[1870 TO 1935]', rows=20, fields=["identifier", "language", "title", "licenseurl", "rights", "year"], label="lang survey")
-    langs: dict[str, int] = {}
-    lics: dict[str, int] = {}
-    for d in j.get("response", {}).get("docs", []):
-        for lang in (d.get("language") if isinstance(d.get("language"), list) else [d.get("language")] if d.get("language") else []):
-            langs[str(lang)] = langs.get(str(lang), 0) + 1
-        lic = str(d.get("licenseurl") or d.get("rights") or "NONE")
-        lics[lic[:70]] = lics.get(lic[:70], 0) + 1
-    print(f"  languages seen: {json.dumps(langs, ensure_ascii=False)}")
-    print(f"  licences seen: {json.dumps(lics)}")
-    print()
+    # 3) download one djvu.txt via raw HTTP, verify md5
+    print("\n--- raw download test ---")
+    for ident, name, finfo in sample_ids[:2]:
+        try:
+            dl = f"{BASE}/download/{ident}/{urllib.parse.quote(name)}"
+            r = requests.get(dl, headers=UA, timeout=120)
+            md5 = hashlib.md5(r.content).hexdigest()
+            size = len(r.content)
+            ok = md5 == finfo.get("md5")
+            print(f"  {ident}/{name}: http={r.status_code} bytes={size} md5_ok={ok} server={r.headers.get('Server', '?')!r}")
+            print(f"    head: {r.content[:100]!r}")
+        except Exception as exc:
+            print(f"  {ident}/{name}: FAILED {type(exc).__name__}: {exc}")
 
-    # internetarchive library path
-    print("--- internetarchive library ---")
+    # 4) InternetArchiveClient end to end: search -> files -> download
+    print("\n--- InternetArchiveClient test ---")
     try:
-        import internetarchive as ia
+        from pathlib import Path
 
-        print("ia version:", ia.__version__)
-        search = ia.search_items(q_full, fields=["identifier", "title", "year", "language", "licenseurl", "subject"], params={"rows": 10})
-        n = 0
-        for rec in search.iter_as_results():
-            print(f"    ia -> {rec.get('identifier')!r} {str(rec.get('title'))[:50]!r}")
-            n += 1
-        print(f"    ia results: {n} (numFound={search.num_found})")
-    except Exception as exc:
-        print(f"    ia FAILED: {type(exc).__name__}: {exc}")
+        import tempfile
 
-    # metadata + files + download for one candidate identifier
-    print("\n--- metadata/files/download path ---")
-    try:
-        ident = "sadhanaammrit00ramauoft"  # a guess; replaced below by any found identifier
-        j2 = adv_search('mediatype:texts AND language:"Bengali" AND (title:tantra OR subject:tantra)', rows=5, fields=["identifier"], label="pick id")
-        docs = j2.get("response", {}).get("docs", [])
-        if docs:
-            ident = docs[0]["identifier"]
-        print(f"  probing item: {ident}")
-        m = requests.get(f"{BASE}/metadata/{ident}", headers=UA, timeout=60).json()
-        md = m.get("metadata", {})
-        print(f"  metadata keys sample: {sorted(k for k in md)[:20]}")
-        print(f"  language={md.get('language')!r} year={md.get('year')!r} date={md.get('date')!r} licenseurl={md.get('licenseurl')!r} rights={md.get('rights')!r}")
-        txt_files = [f for f in m.get("files", []) if f.get("name", "").endswith("_djvu.txt")]
-        print(f"  djvu.txt files: {[f['name'] for f in txt_files]}")
-        if txt_files:
-            f0 = txt_files[0]
-            print(f"  md5={f0.get('md5')!r} size={f0.get('size')!r}")
-            dl = f"{BASE}/download/{ident}/{urllib.parse.quote(f0['name'])}"
-            r = requests.get(dl, headers=UA, timeout=120, stream=True)
-            data = b""
-            for chunk in r.iter_content(1 << 16):
-                data += chunk
-                if len(data) > 300_000:
-                    break
-            print(f"  download http={r.status_code} bytes={len(data)} head={data[:120]!r}")
+        from tantra.scraper import InternetArchiveClient
+
+        client = InternetArchiveClient()
+        if not sample_ids:
+            print("  no sample ids; skip")
+            return
+        ident, name, finfo = sample_ids[0]
+        files = client.files(ident)
+        print(f"  client.files({ident!r}) -> {len(files)} files")
+        djvu = [f for f in files if f.name.endswith("_djvu.txt")]
+        print(f"  djvu_txt files: {[(f.name, f.size, f.md5 and f.md5[:8]) for f in djvu]}")
+        if djvu:
+            with tempfile.TemporaryDirectory() as td:
+                dest = Path(td)
+                client.download(ident, djvu[0].name, dest)
+                target = dest / djvu[0].name
+                data = target.read_bytes()
+                print(f"  client.download -> exists={target.exists()} bytes={len(data)} md5_ok={hashlib.md5(data).hexdigest() == djvu[0].md5}")
+                print(f"  content head: {data[:80]!r}")
+                bengali = sum(1 for ch in data.decode('utf-8', errors='replace')[:4000] if '\u0980' <= ch <= '\u09ff')
+                print(f"  Bengali chars in first 4000: {bengali}")
     except Exception as exc:
-        print(f"  FAILED: {type(exc).__name__}: {exc}")
+        import traceback
+
+        print(f"  InternetArchiveClient FAILED: {type(exc).__name__}: {exc}")
+        traceback.print_exc()
+
+    # 5) advancedsearch rows cap: does rows=500 work?
+    print("\n--- rows cap test ---")
+    for rows in (50, 100, 200, 500):
+        jj = adv_search("mediatype:texts AND language:ben AND title:tantra", rows=rows, fields=["identifier"])
+        n = len(jj.get("response", {}).get("docs", [])) if jj else -1
+        print(f"  rows={rows} -> got {n} docs (numFound={jj.get('response', {}).get('numFound') if jj else '?'})")
 
 
 if __name__ == "__main__":
