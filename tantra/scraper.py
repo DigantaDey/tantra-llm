@@ -489,7 +489,7 @@ class InternetArchiveClient:
             raise ArchiveError(f"archive.org returned HTTP {exc.code} for {url}") from exc
         except urllib.error.URLError as exc:
             raise ArchiveError(f"cannot reach archive.org: {exc.reason}") from exc
-        except (OSError, ValueError) as exc:
+        except (http.client.HTTPException, OSError, ValueError) as exc:
             raise ArchiveError(f"bad response from archive.org: {exc}") from exc
 
     # -------------------------------------------------- search
@@ -507,9 +507,11 @@ class InternetArchiveClient:
                 params[f"fl[{i}]"] = name
             url = f"{self.base_url}/advancedsearch.php?{urllib.parse.urlencode(params)}"
             payload = self._get_json(url)
-            if isinstance(payload, dict) and payload.get("error"):
+            if not isinstance(payload, dict):
+                raise ArchiveError(f"unexpected search reply (not a JSON object) for page {page}")
+            if payload.get("error"):
                 raise ArchiveError(f"archive.org rejected the search query: {payload['error']}")
-            docs = ((payload or {}).get("response") or {}).get("docs") or []
+            docs = (payload.get("response") or {}).get("docs") or []
             if not docs:
                 return
             for doc in docs:

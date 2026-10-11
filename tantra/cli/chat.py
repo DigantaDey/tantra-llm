@@ -108,7 +108,8 @@ def _answer(
     ground_chars: int = 2400,
 ) -> None:
     hits = index.search(text, k=3) if index is not None else []
-    prompt = build_grounded_prompt(DEFAULT_SYSTEM_PROMPT, hits, max_chars=ground_chars) if hits else None
+    # grounding extends whatever system prompt is in force (default or --system)
+    prompt = build_grounded_prompt(session.system_prompt, hits, max_chars=ground_chars) if hits else None
     ui.console.print()
     if hits:
         ui.info(f"grounded in {len(hits)} passage(s) from {len({h.passage.doc_id for h in hits})} document(s)")
