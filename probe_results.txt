@@ -1,18 +1,38 @@
 full query numFound=78 docs=78
-Traceback (most recent call last):
-  File "/home/runner/work/tantra-llm/tantra-llm/probe_archive.py", line 142, in <module>
-    sys.exit(main())
-             ^^^^^^
-  File "/home/runner/work/tantra-llm/tantra-llm/probe_archive.py", line 42, in main
-    c = parse_candidate(d)
-        ^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/tantra-llm/tantra-llm/tantra/scraper.py", line 139, in parse_candidate
-    year=_parse_year(record),
-         ^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/tantra-llm/tantra-llm/tantra/scraper.py", line 125, in _parse_year
-    for value in _as_list(record.get(key)):
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/tantra-llm/tantra-llm/tantra/scraper.py", line 120, in _as_list
-    return [str(v) for v in value if v is not None]
-                            ^^^^^
-TypeError: 'int' object is not iterable
+accepted with marked-PD policy: 1
+accepted with age<=1930 policy: 70
+undated among docs: 0
+
+--- file inventory ---
+  dli.bengal.10689.8270: files=17 djvu_txt=['10689.8270_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'Daisy', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata']
+  in.ernet.dli.2015.357423: files=17 djvu_txt=['2015.357423.Prasuti-Tantra_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'EPUB', 'Image Container PDF', 'Item Tile', 'Metadata']
+  in.ernet.dli.2015.356460: files=17 djvu_txt=['2015.356460.Sadhana-Barsho4_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Animated GIF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata']
+  20260813_20260813_1901: files=16 djvu_txt=['পীঠমালা মহাতন্ত্র_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  dli.bengal.10689.4111: files=16 djvu_txt=['10689.4111_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  in.ernet.dli.2015.351785: files=16 djvu_txt=['2015.351785.Yog-Sadhan_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  in.ernet.dli.2015.337976: files=17 djvu_txt=['2015.337976.Sadhana-O_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Animated GIF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata']
+  in.ernet.dli.2015.352330: files=16 djvu_txt=['2015.352330.Sadhan-Kalpa-Latika_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  in.ernet.dli.2015.337322: files=17 djvu_txt=['2015.337322.Hari-sadhan-giti_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Animated GIF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata']
+  in.ernet.dli.2015.265914: files=16 djvu_txt=['2015.265914.Sadhana_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  in.ernet.dli.2015.290630: files=16 djvu_txt=['2015.290630.Rasatattwa-O_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  dli.bengal.10689.7850: files=16 djvu_txt=['10689.7850_djvu.txt'] pdf=2 djvu=0 formats=['Additional Text PDF', 'Archive BitTorrent', 'DjVuTXT', 'Djvu XML', 'Image Container PDF', 'Item Tile', 'Metadata', 'OCR Page Index']
+  => 12/12 items have _djvu.txt, 12/12 have pdf
+
+--- raw download test ---
+  dli.bengal.10689.8270/10689.8270_djvu.txt: http=200 bytes=1214713 md5_ok=True server='nginx'
+    head: b'\xe0\xa6\xa6\xe0\xa7\x80\xe0\xa6\x95\xe0\xa7\x8d\xe0\xa6\xb7! \xe0\xa7\xab \xe0\xa6\xae\xe0\xa6\xbe\xe0\xa6\xa7\xe0\xa6\xa8\xe0\xa6\xbe\xe0\xa5\xa4 \n\n\n\n\n\n\xe0\xa7\x8d\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xac\xe0\xa6\xbe\xe0\xa6\xb0\xe0\xa7\x87\xe0\xa6\x9c\xe0\xa7\x8d\xe0\xa6\x9c\xe0\xa6\xae\xe0\xa7\x8b\xe0\xa6\xb9\xe0\xa6\xbe\xe0\xa6\xa8 \xe0\xa6\xad\xe0\xa6\x9f\xe0\xa7'
+  in.ernet.dli.2015.357423/2015.357423.Prasuti-Tantra_djvu.txt: http=200 bytes=607868 md5_ok=True server='nginx'
+    head: b'\xe0\xa6\x8f\xe0\xa7\x8d\xe0\xa6\xb0\xe0\xa6\xb8\xe0\xa7\x81\xe0\xa6\xa4\xe0\xa6\xbf-\xe0\xa6\xa4\xe0\xa6\x9c\xe0\xa7\x8d\xe0\xa6\x9e\xe0\xa6\xb0 \n\xe0\xa6\x9f\xe0\xa7\x81\xe0\xa6\xb0 \n\n\n\xe0\xa6\xb8\xe0\xa6\x9a\xe0\xa6\xbf\xe0\xa6\xa4\xe0\xa7\x8d\xe0\xa6\xb0 \xe0\xa6\x86\xe0\xa6\xaf\xe0\xa7\x81\xe0\xa6\xb0\xe0\xa7\x8d\xe0\xa6\xb7\xe0\xa7\x87\xe0\xa6\xa6\xe0\xa7\x80\xe0\xa6'
+
+--- InternetArchiveClient test ---
+  client.files('dli.bengal.10689.8270') -> 17 files
+  djvu_txt files: [('10689.8270_djvu.txt', 1214713, '07562dba')]
+  client.download -> exists=True bytes=1214713 md5_ok=True
+  content head: b'\xe0\xa6\xa6\xe0\xa7\x80\xe0\xa6\x95\xe0\xa7\x8d\xe0\xa6\xb7! \xe0\xa7\xab \xe0\xa6\xae\xe0\xa6\xbe\xe0\xa6\xa7\xe0\xa6\xa8\xe0\xa6\xbe\xe0\xa5\xa4 \n\n\n\n\n\n\xe0\xa7\x8d\xe0\xa6\xb8\xe0\xa7\x8d\xe0\xa6\xac\xe0\xa6\xbe\xe0\xa6\xb0\xe0\xa7\x87\xe0\xa6\x9c\xe0\xa7\x8d\xe0\xa6\x9c\xe0\xa6\xae\xe0'
+  Bengali chars in first 4000: 3032
+
+--- rows cap test ---
+  rows=50 -> got 20 docs (numFound=20)
+  rows=100 -> got 20 docs (numFound=20)
+  rows=200 -> got 20 docs (numFound=20)
+  rows=500 -> got 20 docs (numFound=20)
