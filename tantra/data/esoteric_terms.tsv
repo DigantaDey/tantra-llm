@@ -1,0 +1,68 @@
+# Seed lexicon of Tantric / Shakta / Sadhana vocabulary used by the corrector.
+# Format: bengali<TAB>IAST transliteration<TAB>short gloss<TAB>category
+# Single-token entries only (matching is done per word). Curate this list with
+# a Sanskrit/Bengali specialist before relying on it for scholarship.
+তন্ত্র	tantra	ritual-esoteric system	core
+তান্ত্রিক	tāntrika	practitioner of tantra	core
+শাক্ত	śākta	worshipper of the Goddess	core
+সাধন	sādhana	spiritual practice	practice
+সাধনা	sādhanā	spiritual discipline	practice
+সাধক	sādhaka	practitioner	practice
+সিদ্ধি	siddhi	accomplishment	practice
+দীক্ষা	dīkṣā	initiation	practice
+মন্ত্র	mantra	sacred formula	mantra
+বীজমন্ত্র	bījamantra	seed syllable mantra	mantra
+স্তোত্র	stotra	hymn of praise	mantra
+কবচ	kavaca	protective formula	mantra
+ন্যাস	nyāsa	ritual placement of mantra on body	ritual
+অঙ্গন্যাস	aṅganyāsa	nyāsa on the body parts	ritual
+করন্যাস	karanyāsa	nyāsa on the hands	ritual
+ঋষি	ṛṣi	seer of a mantra	ritual
+ছন্দ	chanda	metre of a mantra	ritual
+দেবতা	devatā	deity of a mantra	ritual
+বিনিয়োগ	viniyoga	statement of purpose before a mantra	ritual
+মুদ্রা	mudrā	ritual gesture	ritual
+মণ্ডল	maṇḍala	sacred diagram	yantra
+যন্ত্র	yantra	geometric diagram	yantra
+চক্র	cakra	energy centre or wheel	yoga
+ষট্চক্র	ṣaṭcakra	six energy centres	yoga
+মূলাধার	mūlādhāra	root centre	yoga
+স্বাধিষ্ঠান	svādhiṣṭhāna	sacral centre	yoga
+মণিপুর	maṇipūra	navel centre	yoga
+অনাহত	anāhata	heart centre	yoga
+বিশুদ্ধ	viśuddha	throat centre	yoga
+আজ্ঞাচক্র	ājñācakra	brow centre	yoga
+সহস্রার	sahasrāra	crown centre	yoga
+কুণ্ডলিনী	kuṇḍalinī	coiled serpent power	yoga
+সুষুম্না	suṣumnā	central channel	yoga
+ইড়া	iḍā	left channel	yoga
+পিঙ্গলা	piṅgalā	right channel	yoga
+প্রাণায়াম	prāṇāyāma	breath regulation	yoga
+ধ্যান	dhyāna	meditation	practice
+জপ	japa	repetition of a mantra	practice
+পুরশ্চরণ	puraścaraṇa	preparatory mantra repetition	practice
+পূজা	pūjā	worship	ritual
+হোম	homa	fire oblation	ritual
+তর্পণ	tarpaṇa	libation	ritual
+শ্মশান	śmaśāna	cremation ground	setting
+গুরু	guru	teacher	lineage
+শক্তি	śakti	divine feminine power	deity
+শিব	śiva	auspicious masculine principle	deity
+কালী	kālī	goddess Kali	deity
+তারা	tārā	goddess Tara	deity
+ত্রিপুরা	tripurā	goddess Tripura Sundari	deity
+ষোড়শী	ṣoḍaśī	sixteen-year-old goddess form	deity
+ভৈরব	bhairava	fierce form of Shiva	deity
+ভৈরবী	bhairavī	female practitioner or goddess form	deity
+যোগিনী	yoginī	female yogic power	deity
+মহাবিদ্যা	mahāvidyā	ten great wisdom goddesses	deity
+ছিন্নমস্তা	chinnamastā	self-decapitated goddess	deity
+ধূমাবতী	dhūmāvatī	widowed goddess	deity
+বগলা	bagalā	goddess of restraint	deity
+মাতঙ্গী	mātaṅgī	goddess Matangi	deity
+কমলা	kamalā	goddess of lotus	deity
+ব্রহ্মরন্ধ্র	brahmarandhra	aperture of Brahman at crown	yoga
+কৌল	kaula	Kaula lineage	core
+বামাচার	vāmācāra	left-hand path	core
+দক্ষিণাচার	dakṣiṇācāra	right-hand path	core
+উপাসনা	upāsanā	devotional worship	practice
