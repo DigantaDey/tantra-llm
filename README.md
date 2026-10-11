@@ -1,29 +1,31 @@
 # tantra-llm
 
-An offline pipeline for Bengali Tantra and Sadhana texts from the Internet Archive: find and download the scans, clean the OCR, and run a small local chat model on a 4 GB CPU-only machine.
+An offline pipeline for Bengali Tantra and Sadhana texts from the Internet Archive: find and download the scans, clean the OCR, and run a small local chat model on a 4 GB CPU-only machine — with answers that can be grounded in the fetched corpus.
 
 ```
 archive.org ──► scraper.py ──► data/raw ──► cleaner.py ──► data/processed/*.md ──► calibration.txt
                 (search,        (djvu.txt,   (denoiser +       (unified Markdown    │
-                 download,      pdf, djvu,    lexicon anchor)   and plain text)     ▼
-                 verify)        metadata)                                     quantize.sh
+                 download,      pdf, djvu,    lexicon anchor    and plain text)     ▼
+                 verify)        metadata)    or --no-model)                       quantize.sh
                                                                          (f16 → i-matrix → Q4_K_M, Q3_K_L)
                                                                                      │
-                                                              app.py ◄──────────────┴──► benchmark.py
-                                                         (chat, 2.5 GiB budget)     (speed, RAM, JSON report)
+                                              app.py ◄──────────────┴──► benchmark.py
+                                    (chat, grounded in data/processed,    (speed, RAM, JSON report)
+                                     2.5 GiB budget)
 ```
 
 ## Status at a glance
 
 | Part | What is verified | What is not verified here |
 |---|---|---|
-| Scraper | Query building, acceptance rules, file selection, MD5 checks, retries, resume, dry-run. Tested against an in-memory fake of archive.org. | Live archive.org search and download. The sandbox cannot reach archive.org. |
-| Cleaner | Synthetic corruption, alignment round-trips, training, checkpoint reload, dictionary anchor, end-to-end correct/calibration/evaluate on small fixtures. | Quality on real scans. The corruption rates are assumptions (see below). |
+| Scraper | Query building, acceptance rules, file selection, MD5 checks, retries, resume, dry-run — against an in-memory fake **and** against a local HTTP server that mirrors the live API's exact JSON shapes (numeric `year` fields, `{"error": ...}` replies with HTTP 200, Range-resumable downloads, non-ASCII filenames). CI additionally runs a **live archive.org integration job on every push and PR**: real search, real metadata, a real MD5-verified download. | Occasional archive.org outages (the live job retries transient failures). |
+| Cleaner | Synthetic corruption, alignment round-trips, training, checkpoint reload, dictionary anchor, end-to-end correct/calibration/evaluate on small fixtures — including the `--no-model` structural path that needs no checkpoint. | Quality on real scans. The corruption rates are assumptions (see below). |
 | Quantization | `quantize.sh` runs the full chain (HF → f16 GGUF → i-matrix → Q4_K_M and Q3_K_L → GGUF magic check → SHA256SUMS) on a tiny random LLaMA, and the same chain is exercised on every platform by an integration test with stub tools. `llama-cpp-python` 0.3.36 loads both outputs. Works with GNU and BSD userland (macOS) and bash 3.2. | The Qwen2.5 conversion. The sandbox cannot reach Hugging Face. |
 | Model download | `fetch_model.py` resumable download, size/SHA-256/GGUF verification, against a local fake Hub; the pinned sizes and hashes of both Qwen GGUFs were read from the Hugging Face tree API. | The live download itself (the sandbox cannot reach huggingface.co). |
-| App and benchmark | `app.py` and `benchmark.py` run end-to-end on the tiny model with the real `llama-cpp-python`, including `--prompt`, the interactive REPL, `--gpu-layers`, JSON reports and `--enforce`. CI builds the chat runtime from source on macOS (Apple Silicon) and runs the tests there. | Memory and speed of the 1.5B model. Not measured yet. |
+| Grounded chat | BM25 retrieval over the processed corpus (Bengali-aware tokenisation), citation markers, prompt budgeting, per-turn system-prompt override — all unit-tested with a fake backend. | Retrieval quality on the real corpus, and answer quality of the underlying LLM. |
+| App and benchmark | `app.py` and `benchmark.py` run end-to-end on the tiny model with the real `llama-cpp-python`, including `--prompt`, the interactive REPL, `--gpu-layers`, `--ground`, JSON reports and `--enforce`. CI builds the chat runtime from source on macOS (Apple Silicon) and runs the tests there. | Memory and speed of the 1.5B model. Not measured yet. |
 
-Everything is covered by 561 unit and integration tests that run offline in a few seconds.
+Everything is covered by 600 offline unit and integration tests that run in a few seconds, plus 2 live archive.org integration tests (`pytest -m live`) that CI runs on every push and pull request.
 
 ## Quick start
 
@@ -38,12 +40,20 @@ python app.py         # chat
 
 `setup.sh` does the right thing per platform: on macOS it checks for the Xcode Command Line Tools and builds the Metal backend so Apple Silicon runs on the GPU; on Linux it installs the small CPU-only PyTorch build. Flags: `--small-model` (0.5B instead of 1.5B), `--no-model`, `--no-llm`, `--python PATH`.
 
+With setup done, the archive-to-chat journey is three commands:
+
+```bash
+python scraper.py download --limit 10     # fetch Bengali Tantra texts from archive.org (MD5-verified)
+python cleaner.py correct --no-model      # → data/processed (Markdown + plain text, zero setup)
+python app.py --ground                    # chat with answers grounded in the fetched texts
+```
+
 Manual setup, step by step:
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"                                              # scraper, cleaner, tests (pulls in PyTorch)
-pytest -q                                                            # 561 tests, a few seconds
+pytest -q                                                            # 600 tests, a few seconds
 ```
 
 On Linux you can install the CPU-only PyTorch wheel first (`pip install --index-url https://download.pytorch.org/whl/cpu torch`) to keep the download small. On macOS the PyPI wheel already is the CPU build; there is no separate CPU index.
@@ -89,20 +99,28 @@ python scraper.py download --identifier <archive-id>   # one item
 python scraper.py download --limit 25 --delay 1.0      # everything accepted, polite rate
 ```
 
-- **Language:** the item must declare Bengali (`Bengali`, `Bangla`, `ben`, `beng`, `bn`, …).
-- **Date:** publication year between 1870 and 1935 (`--year-range` to change). Undated items need `--allow-undated`.
+- **Language:** the item must declare Bengali (`Bengali`, `Bangla`, `ben`, `beng`, `bn`, …; stray punctuation like `Bengali.` is tolerated).
+- **Date:** publication year between 1870 and 1935 (`--year-range` to change). `--allow-undated` both keeps undated items *and* drops the year filter from the search query, so such items are actually found.
 - **Topic:** a Tantra or Sadhana keyword (English or Bengali) in the title or subject. The query searches the same fields.
-- **Rights:** the licence must be marked public domain (`publicdomain` in the licence URL, or "public domain" in the rights statement). Use `--include-unmarked` only after checking the rights yourself.
-- **Downloads:** `djvu_txt` (the OCR text), `pdf` and `djvu`. Each file is checked against the archive's MD5 (a mismatch is deleted and re-fetched), retried on error, and skipped on resume if already verified. Each downloaded item gets `data/raw/<id>/metadata.json` (title, year, languages, licence, source URL, files, score). Every download attempt, successful or failed, is appended to `data/raw/manifest.jsonl`. Rejected hits are not written to disk; `search --show-rejected` lists them with reasons.
+- **Rights:** the default accepts items regardless of licence marking, because almost no real Bengali Tantra scan on archive.org carries a licence mark (in October 2026, one of the 78 items matching the default query was marked). The licence fields and a plain-language `rights_basis` are recorded in every item's `metadata.json`, so provenance travels with the text. `--require-marked-pd` restores the conservative accept-only-marked-public-domain behaviour. **Whatever the setting, checking the actual rights of what you redistribute remains your responsibility.**
+- **Downloads:** `djvu_txt` (the OCR text) and `pdf` by default (`--formats djvu_txt,pdf,djvu` to add `.djvu`, which scanned items rarely carry). Files are streamed to a `.part` file, resumed over HTTP Range after an interrupted run, checked against the archive's published size and MD5, and only then moved into place. A mismatch raises and is retried; a pre-existing verified file is skipped, so re-running is cheap. Each downloaded item gets `data/raw/<id>/metadata.json` (title, year, languages, licence, rights basis, source URL, files, score). Every download attempt — downloaded, no-files, failed — is appended to `data/raw/manifest.jsonl`. Rejected hits are not written to disk; `search --show-rejected` lists them with reasons.
+- **Search API errors are loud:** archive.org reports a bad query as `{"error": ...}` with HTTP 200; the client turns that into a visible failure instead of a silent empty result list.
+- **Implementation:** the scraper talks to the three public archive.org endpoints directly over HTTPS (stdlib only — no SDK dependency): `advancedsearch.php` (paginated), `/metadata/<id>` (one cached request per item) and `/download/<id>/<file>`.
 
 ### 2. Clean the OCR
 
 ```bash
-python cleaner.py train --corpus data/baseline --out models/denoiser.pt    # a clean Bengali corpus you supply (several paths are allowed)
+python cleaner.py correct --no-model                                        # zero-setup: structure only, no checkpoint
+python cleaner.py train --corpus data/baseline --out models/denoiser.pt     # a clean Bengali corpus you supply (several paths are allowed)
 python cleaner.py correct --checkpoint models/denoiser.pt                   # data/raw → data/processed/*.md
 python cleaner.py calibration                                               # concatenate for llama-imatrix
 python cleaner.py evaluate --checkpoint models/denoiser.pt --json reports/eval.json
 ```
+
+Two paths through this stage:
+
+- **Zero-setup (`--no-model`).** No checkpoint, no baseline corpus: Unicode normalisation, page splitting, page-number stripping and reflow into Markdown + plain text. A fresh checkout can go from `scraper.py download` to calibration data in one straight line.
+- **With the denoiser.** A character-level, bidirectional tagger (see below) additionally repairs the Bengali lines. Train it on a clean corpus, or bootstrap it on the archive itself: correct once (with a baseline-trained or `--no-model` pass), then retrain with `--corpus data/baseline data/processed` — the corrected archive text acts as pseudo-clean domain data for a second generation. This self-training loop is wired and tested, but its *quality* is unproven (see Results); the honest default for a fresh user is `--no-model` plus calibration.
 
 The denoiser is a character-level, bidirectional tagger in the style of GECToR. It does not generate text. For each character it predicts an edit: keep it, delete it, or replace it with a short string such as a missing hasanta. This matters because OCR errors often change the length of a word (a conjunct split into two letters, for example). A per-character tagger can express that directly, which a fixed-length masked-token model does not.
 
@@ -131,11 +149,15 @@ Output goes to `models/gguf/`: `<name>-Q4_K_M.gguf` and `<name>-Q3_K_L.gguf`, th
 ```bash
 python app.py                                  # newest Q4_K_M model in models/gguf/
 python app.py --prompt "তন্ত্র কী?"            # one answer and exit
+python app.py --ground                         # ground answers in data/processed (retrieval + citations)
+python app.py --ground /path/to/corpus --ground-chars 1600
 python app.py --gpu-layers 0                   # force CPU (default: offload everything the GPU supports)
 python benchmark.py --threads 2 --enforce      # exit 3 if peak RAM exceeds the budget
 ```
 
-Inside the chat, `/help`, `/reset`, `/stats` and `/exit` are available. Threads default to 4 on hosts with 4 or more physical cores, otherwise 2. Each answer ends with a footer showing tokens per second and resident memory against the budget. Benchmark reports are written as JSON to `reports/`.
+**Grounded mode** (`--ground`) is where the fetched archive texts enter the product: the processed corpus is indexed with BM25 over Bengali-aware tokens (pure Python, offline), the best-matching passages for each question are injected into the system prompt under a character budget (`--ground-chars`, default 2400), and the answer footer shows which documents were used (`[1] সাধনতত্ত্ব · [2] …`). The model is instructed to cite passages as `[1]`, `[2]` and to say plainly when the corpus does not cover the question. With no processed corpus the app warns and continues ungrounded.
+
+Inside the chat, `/help`, `/reset`, `/stats` and `/exit` are available; `/stats` includes the corpus size in grounded mode. Threads default to 4 on hosts with 4 or more physical cores, otherwise 2. Each answer ends with a footer showing tokens per second and resident memory against the budget. Benchmark reports are written as JSON to `reports/`.
 
 On Apple Silicon the runtime built by `setup.sh` includes the Metal backend, and `--gpu-layers` defaults to offloading every layer (`-1`) whenever the runtime supports GPU offload; on a CPU-only build the default is `0`. The load line and `/stats` show which device is in use.
 
@@ -149,8 +171,8 @@ The planned model is Qwen2.5-1.5B-Instruct quantized to Q4_K_M. A rough estimate
 
 Read this before you publish or redistribute anything.
 
-- **No text is shipped in this repository.** `data/` and `models/` are git-ignored. The scraper stores the metadata, licence and source URL with every item, so provenance travels with the text.
-- **The scraper accepts only items marked public domain by default.** Checking the actual rights of each item is still your responsibility. Use `--include-unmarked` only after review.
+- **No text is shipped in this repository.** `data/` and `models/` are git-ignored. The scraper stores the metadata, licence, rights basis and source URL with every item, so provenance travels with the text.
+- **The scraper accepts unmarked items by default.** Almost no Bengali Tantra scan on archive.org carries a licence mark, so a marked-only default would fetch nothing. The default policy is a practical choice, not a legal clearance: the licence fields and a plain-language `rights_basis` are recorded per item, and `--require-marked-pd` restores the strict behaviour. Checking the actual rights of anything you redistribute is your responsibility — colonial-era Indian imprints usually are public domain by age, but *usually* is not a licence.
 - **Licence.** The code, the lexicon and the documentation are licensed under GPL-3.0-only (see `LICENSE`). The repository uses the same licence as the baseline corpus below, so it does not add a conflicting one.
 - **Baseline corpus.** The denoiser is trained on eight news files from SUMono (`maamumin/SUMono`, GPL-3.0). The copy in `data/baseline/` is git-ignored and is not redistributed here. Whether a checkpoint counts as derived from that text is a legal question this project has not settled, so the conservative policy is to publish checkpoints only under GPL-3.0 and say so next to them.
 - **Extra clean text (optional, not used by default).** `data/extra/` is git-ignored. The NER-Bangla dataset (`MISabic/NER-Bangla-Dataset`, MIT) provides 70,277 Bengali sentences, which were tried as extra clean text. Its README does not state where the sentences come from, so their rights are unverified. The MIT licence covers the dataset as published, not necessarily the underlying text. Check before using it.
@@ -158,10 +180,12 @@ Read this before you publish or redistribute anything.
 
 ## Network and verification limits
 
-Archive.org, Hugging Face and the live Qwen download were unreachable from the environment where this was built. So:
+Archive.org is now exercised live: CI runs a dedicated `live-archive` job on every push and pull request that searches the real archive, checks the acceptance contract, and downloads a stable item's OCR text with MD5 verification. Transient archive.org failures are retried.
 
-- The scraper is tested against an in-memory fake of archive.org. The query syntax and metadata field names come from the `internetarchive` library and the archive's advanced-search documentation, and have not been checked against a live response.
-- The Qwen2.5 conversion path in `quantize.sh` has not been run. The same script was verified end-to-end on a tiny random LLaMA with a SentencePiece tokenizer. The Qwen repository ID and file names in `tantra/fetch.py` were checked against the Hugging Face tree API (sizes and SHA-256 pins included), but the download itself was not run from the build sandbox.
+Still not verifiable from the build environment:
+
+- Hugging Face and the live Qwen download were unreachable when `tantra/fetch.py` was written. The pinned sizes and hashes were read from the Hub tree API, but the download itself was not run from the build sandbox.
+- The Qwen2.5 conversion path in `quantize.sh` has not been run. The same script was verified end-to-end on a tiny random LLaMA with a SentencePiece tokenizer.
 - Model quality and memory on the 1.5B model are unmeasured. They should be measured on the target hardware before any claim is made.
 - macOS behaviour (bash 3.2, BSD `stat`/`shasum`, Apple Silicon Metal build) is exercised by CI on `macos-14` runners: the test suite runs `quantize.sh` end-to-end against stub tools there, and a separate job compiles `llama-cpp-python` from source exactly as `setup.sh` does.
 
@@ -234,21 +258,26 @@ The default `--edit-weight` stays at 1.0 with the SUMono baseline only. It is th
 
 ```bash
 ruff check . && ruff format --check .   # lint and formatting (ruff pinned to 0.17.0)
-pytest -q                               # 561 unit and integration tests
+pytest -q                               # 600 offline tests (2 live tests: pytest -m live)
 shellcheck quantize.sh setup.sh         # shell checks (the CI runner uses stock macOS bash 3.2 too)
 ```
 
-CI runs the test suite on Linux (Python 3.11–3.13) and on macOS 14 (Apple Silicon), builds the sdist/wheel, and compiles the chat runtime from source on a macOS runner.
+CI runs the test suite on Linux (Python 3.11–3.13) and on macOS 14 (Apple Silicon), runs the live archive.org integration job, builds the sdist/wheel, and compiles the chat runtime from source on a macOS runner.
 
 Layout:
 
 ```
 tantra/            library: text, alignment, noise, dictionary, model, corrector, training,
-                   pipeline, markdown, scraper, llm, bench, memory, ui
+                   pipeline, markdown, scraper (direct-HTTP archive.org client), retrieval
+                   (BM25 corpus grounding), llm, bench, memory, ui
 tantra/cli/        command-line front ends: scrape, clean, chat (app.py), bench (benchmark.py)
 scripts/           make_tiny_model.py builds the offline test fixture (never ship its output)
-tests/             pytest suite; tests/fakes.py holds the offline doubles
-.github/workflows/ CI: lint, tests on Python 3.11 and 3.12, package build and wheel smoke test
+tests/             pytest suite; tests/fakes.py holds the offline doubles,
+                   test_archive_http_client.py runs the real client against a local
+                   HTTP server that mirrors archive.org's response shapes,
+                   test_live_archive.py (marker: live) hits the real archive.org
+.github/workflows/ CI: lint, tests on Python 3.11–3.13, live archive.org integration,
+                   package build and wheel smoke test
 ```
 
 CI runs on every push to `main` and every pull request.

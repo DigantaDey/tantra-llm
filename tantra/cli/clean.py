@@ -163,7 +163,9 @@ def cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
-def _corrector(args: argparse.Namespace) -> Corrector:
+def _corrector(args: argparse.Namespace) -> Corrector | None:
+    if getattr(args, "no_model", False):
+        return None
     dictionary = None if getattr(args, "no_dictionary", False) else _load_dictionary(args.dictionary)
     return Corrector.load(args.checkpoint, dictionary, dict_bonus=args.dict_bonus)
 
@@ -171,6 +173,8 @@ def _corrector(args: argparse.Namespace) -> Corrector:
 def cmd_correct(args: argparse.Namespace) -> int:
     ui.banner("Correct archive OCR into clean Markdown")
     corrector = _corrector(args)
+    if corrector is None:
+        ui.info("no model selected: structural cleaning only (normalise, paginate, reflow)")
     jobs = _text_jobs(Path(args.input))
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -196,6 +200,7 @@ def cmd_correct(args: argparse.Namespace) -> int:
             f"{time.time() - started:.1f}",
         )
     ui.console.print(table)
+    ui.ok(f"next: python cleaner.py calibration --processed {out_dir}")
     return 0
 
 
@@ -359,6 +364,11 @@ def _parser() -> argparse.ArgumentParser:
 
     c = sub.add_parser("correct", help="correct archive OCR text(s) into Markdown")
     c.add_argument("--checkpoint", type=Path, default=DENOISER_CHECKPOINT)
+    c.add_argument(
+        "--no-model",
+        action="store_true",
+        help="structural cleaning only (no denoiser checkpoint needed): normalise, split pages, reflow",
+    )
     c.add_argument("--input", default=str(RAW_DIR), help="a *_djvu.txt file or the raw data directory")
     c.add_argument("--out-dir", default=str(PROCESSED_DIR))
     c.add_argument("--dictionary")

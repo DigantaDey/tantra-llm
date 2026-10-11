@@ -43,7 +43,7 @@ class FakeArchive:
             for name, fmt, content in self._files.get(identifier, [])
         ]
 
-    def download(self, identifier: str, filename: str, dest_dir: Path) -> None:
+    def download(self, identifier: str, filename: str, dest_dir: Path, *, on_progress=None) -> Path:
         self.download_calls.append((identifier, filename))
         if self.fail_times.get(filename, 0) > 0:
             self.fail_times[filename] -= 1
@@ -53,7 +53,11 @@ class FakeArchive:
             self.corrupt_once.discard(filename)
             content = content[:-1] + b"?"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        (dest_dir / filename).write_bytes(content)
+        target = dest_dir / filename
+        target.write_bytes(content)
+        if on_progress:
+            on_progress(len(content), len(content))
+        return target
 
 
 # ----------------------------------------------------------------- shared test doubles

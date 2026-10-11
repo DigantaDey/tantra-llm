@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -8,10 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tantra.bengali import normalize
 from tantra.cli import clean as clean_cli
 from tantra.cli import scrape as scrape_cli
 from tantra.cli.chat import find_default_model, pick_threads
 from tantra.cli.chat import main as chat_main
+from tests.fakes import FakeArchive
 
 ROOT = Path(__file__).resolve().parent.parent
 BENGALI_LINES = [
@@ -60,6 +63,100 @@ def test_scrape_help_runs():
         [sys.executable, str(ROOT / "scraper.py"), "--help"], capture_output=True, text=True, check=False
     )
     assert out.returncode == 0 and "download" in out.stdout
+
+
+def _scrape_args(**overrides):
+    base = {
+        "command": "search",
+        "limit": 10,
+        "year_range": [1870, 1935],
+        "allow_undated": False,
+        "require_marked_pd": False,
+        "query": None,
+        "show_rejected": False,
+    }
+    base.update(overrides)
+    return argparse.Namespace(**base)
+
+
+def test_scrape_search_renders_rights_and_accepts_unmarked(capsys):
+    from tantra.scraper import evaluate, parse_candidate
+
+    records = [
+        {
+            "identifier": "unmarked1910",
+            "title": "Diksha O Sadhana",
+            "year": 1910,
+            "language": "ben",
+            "subject": "tantra",
+            "licenseurl": "",
+        },
+        {
+            "identifier": "english1900",
+            "title": "A tantric cookbook",
+            "year": 1900,
+            "language": "eng",
+            "subject": "tantra",
+        },
+    ]
+    archive = FakeArchive(records)
+    assert scrape_cli._cmd_search(_scrape_args(), archive) == 0
+    out = capsys.readouterr().out
+    assert "unmarked1910" in out and "unmarked" in out
+    assert "accepted" in out
+    assert "english1900" not in out  # rejected hit is hidden without --show-rejected
+    # the default policy accepts the unmarked scan; the strict flag would not
+    cand = parse_candidate(records[0])
+    assert evaluate(cand).accepted
+    assert not evaluate(cand, rights_policy="marked").accepted
+
+
+def test_scrape_search_strict_mode_rejects_unmarked(capsys):
+    records = [
+        {
+            "identifier": "unmarked1910",
+            "title": "Diksha O Sadhana",
+            "year": 1910,
+            "language": "ben",
+            "subject": "tantra",
+            "licenseurl": "",
+        }
+    ]
+    archive = FakeArchive(records)
+    assert scrape_cli._cmd_search(_scrape_args(require_marked_pd=True, show_rejected=True), archive) == 0
+    out = capsys.readouterr().out
+    assert "not marked public domain" in out
+    assert "unmarked1910" in out  # shown because --show-rejected
+
+
+def test_scrape_download_rejects_and_skips_specific_identifier(capsys, tmp_path):
+    records = [
+        {
+            "identifier": "modern1999",
+            "title": "Modern Sadhana",
+            "year": 1999,  # outside the default range
+            "language": "ben",
+            "subject": "tantra",
+        }
+    ]
+    archive = FakeArchive(records)
+    args = argparse.Namespace(
+        command="download",
+        limit=10,
+        year_range=[1870, 1935],
+        allow_undated=False,
+        require_marked_pd=False,
+        query=None,
+        identifier=["modern1999"],
+        formats="djvu_txt",
+        out=tmp_path,
+        delay=0,
+        retries=1,
+        dry_run=False,
+    )
+    assert scrape_cli._cmd_download(args, archive) == 1
+    assert "outside 1870-1935" in capsys.readouterr().out
+    assert archive.download_calls == []
 
 
 def _train_tiny(tmp_path: Path, corpus: Path, ckpt: Path) -> int:
@@ -198,6 +295,31 @@ def test_correct_refuses_a_non_bengali_document(tmp_path, capsys):
     )
     assert "not mostly Bengali" in capsys.readouterr().out
     assert not (tmp_path / "out" / "english1900.md").exists()
+
+
+def test_correct_without_a_checkpoint_cleans_structurally(tmp_path):
+    """--no-model is the zero-setup path: no denoiser, no baseline corpus, still
+    produces processed .md/.txt good enough for calibration and grounded chat."""
+    raw = tmp_path / "raw" / "sadhana1898"
+    raw.mkdir(parents=True)
+    (raw / "metadata.json").write_text(
+        json.dumps({"identifier": "sadhana1898", "title": "সাধনা", "year": 1898}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (raw / "sadhana1898_djvu.txt").write_text(
+        f"{'12'}\n{BENGALI_LINES[0]}\n\n{BENGALI_LINES[1]}\f{BENGALI_LINES[2]}\n", encoding="utf-8"
+    )
+    out = tmp_path / "processed"
+    assert clean_cli.main(["correct", "--no-model", "--input", str(raw.parent), "--out-dir", str(out)]) == 0
+    text = (out / "sadhana1898.txt").read_text(encoding="utf-8")
+    # compare against the NFC/composed form: that is what the structural pass normalises to
+    assert normalize(BENGALI_LINES[0]).split("।")[0] in text
+    assert "\n12\n" not in text  # leading bare page number is stripped structurally
+    md = (out / "sadhana1898.md").read_text(encoding="utf-8")
+    assert "no model (structure only)" in md
+    calib = tmp_path / "calibration.txt"
+    assert clean_cli.main(["calibration", "--processed", str(out), "--out", str(calib)]) == 0
+    assert calib.read_text(encoding="utf-8").strip()
 
 
 def test_train_without_corpus_gives_a_helpful_error(tmp_path, monkeypatch):

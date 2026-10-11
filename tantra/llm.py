@@ -149,11 +149,12 @@ class ChatSession:
         self.history.clear()
         self.tokens_generated = 0
 
-    def _messages(self, user_text: str, budget: int) -> list[dict[str, str]]:
+    def _messages(self, user_text: str, budget: int, system_prompt: str | None = None) -> list[dict[str, str]]:
         """Newest turns first; drop the oldest until the prompt fits the context budget."""
+        prompt = system_prompt if system_prompt is not None else self.system_prompt
         turns = self.history[-(self.max_turns * 2) :]
         while True:
-            messages = [{"role": "system", "content": self.system_prompt}]
+            messages = [{"role": "system", "content": prompt}]
             messages += [{"role": t.role, "content": t.content} for t in turns]
             messages.append({"role": "user", "content": user_text})
             used = sum(self.backend.count_tokens(m["content"]) for m in messages) + 16 * len(messages)
@@ -161,12 +162,16 @@ class ChatSession:
                 return messages
             turns = turns[2:] if len(turns) >= 2 else []
 
-    def ask(self, user_text: str, params: GenerationParams) -> Iterator[str]:
-        """Stream the answer. History is updated only when the answer completes."""
+    def ask(self, user_text: str, params: GenerationParams, *, system_prompt: str | None = None) -> Iterator[str]:
+        """Stream the answer. History is updated only when the answer completes.
+
+        ``system_prompt`` overrides the session prompt for this turn only - the
+        hook the corpus-grounded mode uses to attach retrieved passages.
+        """
         budget = self.backend.context_size - params.max_tokens - 32
         if budget <= 0:
             raise ValueError("max_tokens leaves no room for the prompt; lower --max-tokens or raise --ctx")
-        messages = self._messages(user_text, budget)
+        messages = self._messages(user_text, budget, system_prompt)
         pieces: list[str] = []
         for piece in self.backend.stream_chat(messages, params):
             pieces.append(piece)
