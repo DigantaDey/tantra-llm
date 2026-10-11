@@ -6,7 +6,7 @@ import json
 import sys
 import urllib.parse
 
-import requests
+import requests  # noqa: F401 (kept: available in CI probe)
 
 from tantra.scraper import build_query
 
