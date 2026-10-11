@@ -39,6 +39,12 @@ def main() -> None:
     accepted_marked = 0
     undated = 0
     for d in docs:
+        d = dict(d)
+        d["year"] = str(d["year"]) if d.get("year") is not None else None
+        d["language"] = d["language"] if isinstance(d.get("language"), (list, str)) else str(d.get("language") or "")
+        d["subject"] = d["subject"] if isinstance(d.get("subject"), (list, str)) else str(d.get("subject") or "")
+        d["title"] = d["title"] if isinstance(d.get("title"), (list, str)) else str(d.get("title") or "")
+        d["licenseurl"] = d["licenseurl"] if isinstance(d.get("licenseurl"), (list, str)) else str(d.get("licenseurl") or "")
         c = parse_candidate(d)
         dec_marked = evaluate(c, require_public_domain=True)
         if dec_marked.accepted:
