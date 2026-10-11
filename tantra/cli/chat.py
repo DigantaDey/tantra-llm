@@ -9,7 +9,8 @@ import time
 from pathlib import Path
 
 from tantra import ui
-from tantra.config import GGUF_DIR, MEMORY_BUDGET_MB
+from tantra.config import GGUF_DIR, default_budget_mb
+from tantra.fetch import MODELS
 from tantra.llm import (
     DEFAULT_SYSTEM_PROMPT,
     ChatSession,
@@ -17,6 +18,7 @@ from tantra.llm import (
     LlamaCppBackend,
     ModelNotFoundError,
     RuntimeMissingError,
+    device_label,
 )
 from tantra.memory import PeakMonitor, physical_cores, rss_mb
 
@@ -37,13 +39,14 @@ def pick_threads(cores: int) -> int:
 def find_default_model(directory: Path = GGUF_DIR) -> Path | None:
     if not directory.is_dir():
         return None
-    candidates = sorted(directory.glob("*.gguf"))
+    # Newest first; Q4_K_M beats other quantizations (same rule the --help text promises).
+    candidates = sorted(directory.glob("*.gguf"), key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
     preferred = [p for p in candidates if "Q4_K_M" in p.name.upper()]
     return (preferred or candidates or [None])[0]
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="app.py", description="Chat with the local Tantra LLM (CPU, GGUF).")
+    p = argparse.ArgumentParser(prog="app.py", description="Chat with the local Tantra LLM (GGUF, offline).")
     p.add_argument("--model", type=Path, help="path to a .gguf file (default: newest Q4_K_M in models/gguf/)")
     p.add_argument("--threads", type=int, help="CPU threads (default: 4 on 4+ core hosts, else 2)")
     p.add_argument("--ctx", type=int, default=2048, help="context window in tokens (default: 2048)")
@@ -55,10 +58,16 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--system", help="override the system prompt")
     p.add_argument("--prompt", help="answer one question and exit (non-interactive)")
     p.add_argument(
+        "--gpu-layers",
+        type=int,
+        default=None,
+        help="layers to offload to the GPU: -1 = all (default when supported, e.g. Apple Silicon Metal), 0 = CPU only",
+    )
+    p.add_argument(
         "--budget-mb",
         type=float,
-        default=MEMORY_BUDGET_MB,
-        help=f"warn above this RSS in MiB (default: {MEMORY_BUDGET_MB})",
+        default=None,
+        help="warn above this RSS in MiB (default: 2.5 GiB on small hosts, up to 4 GiB on 16 GB machines)",
     )
     return p
 
@@ -92,17 +101,36 @@ def _enable_line_editing() -> None:
         import readline  # noqa: F401
 
 
+def _no_model_guide() -> None:
+    small, standard = MODELS["small"], MODELS["standard"]
+    ui.fail(f"no .gguf model found in {GGUF_DIR}")
+    rows = [
+        ("python fetch_model.py", standard.label),
+        ("python fetch_model.py --size small", small.label),
+        ("python app.py --model PATH", "or point at your own GGUF file"),
+        ("./setup.sh", "full setup: runtime + model"),
+    ]
+    table = ui.kv_table(rows)
+    table.columns[0].style = f"bold {ui.ACCENT}"
+    ui.console.print(
+        ui.Panel(
+            table,
+            title=f"[bold {ui.ACCENT}]Get a model[/]",
+            border_style=ui.ACCENT,
+            padding=(1, 2),
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    ui.banner("Local Tantra LLM · runs offline on CPU")
+    ui.banner("Local Tantra LLM · runs offline on your machine")
     model_path = args.model or find_default_model()
     if model_path is None:
-        ui.fail(f"no .gguf model found in {GGUF_DIR}")
-        ui.info(
-            "build one with:  ./quantize.sh --hf-dir <converted-model> --calibration data/calibration/calibration.txt"
-        )
+        _no_model_guide()
         return 1
 
+    budget_mb = args.budget_mb if args.budget_mb is not None else default_budget_mb()
     threads = args.threads or pick_threads(physical_cores())
     params = GenerationParams(
         max_tokens=args.max_tokens,
@@ -115,24 +143,27 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     try:
         with ui.console.status("[bold]loading weights…[/]", spinner="dots"):
-            backend = LlamaCppBackend(model_path, n_ctx=args.ctx, threads=threads, seed=args.seed)
+            backend = LlamaCppBackend(
+                model_path, n_ctx=args.ctx, threads=threads, seed=args.seed, n_gpu_layers=args.gpu_layers
+            )
     except (ModelNotFoundError, RuntimeMissingError) as exc:
         ui.fail(str(exc))
         return 1
     load_seconds = time.perf_counter() - started
     loaded_mb = rss_mb()
-    ui.ok(f"{model_path.name} · {threads} threads · ctx {args.ctx} · loaded in {load_seconds:.1f}s")
-    style = ui.memory_style(loaded_mb, args.budget_mb)
-    ui.info(
-        f"resident memory after load: [{style}]{loaded_mb / 1024:.2f} GB[/] (budget {args.budget_mb / 1024:.1f} GB)"
+    ui.ok(
+        f"{model_path.name} · {device_label(backend.gpu_layers)} · {threads} threads · "
+        f"ctx {args.ctx} · loaded in {load_seconds:.1f}s"
     )
-    if loaded_mb > args.budget_mb:
-        ui.warn("above the memory budget: expect swapping on a 4 GB machine; try a smaller quantization")
+    style = ui.memory_style(loaded_mb, budget_mb)
+    ui.info(f"resident memory after load: [{style}]{loaded_mb / 1024:.2f} GB[/] (budget {budget_mb / 1024:.1f} GB)")
+    if loaded_mb > budget_mb:
+        ui.warn("above the memory budget: expect swapping; try a smaller quantization or --gpu-layers 0")
 
     session = ChatSession(backend, system_prompt=args.system or DEFAULT_SYSTEM_PROMPT)
 
     if args.prompt:
-        _answer(session, args.prompt, params, args.budget_mb)
+        _answer(session, args.prompt, params, budget_mb)
         return 0
 
     _enable_line_editing()
@@ -158,8 +189,9 @@ def main(argv: list[str] | None = None) -> int:
             ui.console.print(
                 ui.kv_table(
                     [
+                        ("device", device_label(backend.gpu_layers)),
                         ("resident memory", f"{rss_mb() / 1024:.2f} GB"),
-                        ("budget", f"{args.budget_mb / 1024:.1f} GB"),
+                        ("budget", f"{budget_mb / 1024:.1f} GB"),
                         ("turns kept", str(len(session.history) // 2)),
                         ("tokens generated", f"{session.tokens_generated:,}"),
                     ]
@@ -167,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         try:
-            _answer(session, text, params, args.budget_mb)
+            _answer(session, text, params, budget_mb)
         except KeyboardInterrupt:
             ui.console.print(f"\n[{ui.WARN}]generation stopped[/]")
         except ValueError as exc:

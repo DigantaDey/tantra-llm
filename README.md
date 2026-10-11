@@ -19,28 +19,63 @@ archive.org ──► scraper.py ──► data/raw ──► cleaner.py ──�
 |---|---|---|
 | Scraper | Query building, acceptance rules, file selection, MD5 checks, retries, resume, dry-run. Tested against an in-memory fake of archive.org. | Live archive.org search and download. The sandbox cannot reach archive.org. |
 | Cleaner | Synthetic corruption, alignment round-trips, training, checkpoint reload, dictionary anchor, end-to-end correct/calibration/evaluate on small fixtures. | Quality on real scans. The corruption rates are assumptions (see below). |
-| Quantization | `quantize.sh` runs the full chain (HF → f16 GGUF → i-matrix → Q4_K_M and Q3_K_L → GGUF magic check → SHA256SUMS) on a tiny random LLaMA. `llama-cpp-python` 0.3.36 loads both outputs. | The Qwen2.5 conversion. The sandbox cannot reach Hugging Face. |
-| App and benchmark | `app.py` and `benchmark.py` run end-to-end on the tiny model, including `--prompt`, the interactive REPL, JSON reports and `--enforce`. | Memory and speed of the 1.5B model. Not measured yet. |
+| Quantization | `quantize.sh` runs the full chain (HF → f16 GGUF → i-matrix → Q4_K_M and Q3_K_L → GGUF magic check → SHA256SUMS) on a tiny random LLaMA, and the same chain is exercised on every platform by an integration test with stub tools. `llama-cpp-python` 0.3.36 loads both outputs. Works with GNU and BSD userland (macOS) and bash 3.2. | The Qwen2.5 conversion. The sandbox cannot reach Hugging Face. |
+| Model download | `fetch_model.py` resumable download, size/SHA-256/GGUF verification, against a local fake Hub; the pinned sizes and hashes of both Qwen GGUFs were read from the Hugging Face tree API. | The live download itself (the sandbox cannot reach huggingface.co). |
+| App and benchmark | `app.py` and `benchmark.py` run end-to-end on the tiny model with the real `llama-cpp-python`, including `--prompt`, the interactive REPL, `--gpu-layers`, JSON reports and `--enforce`. CI builds the chat runtime from source on macOS (Apple Silicon) and runs the tests there. | Memory and speed of the 1.5B model. Not measured yet. |
 
-Everything is covered by 519 unit and integration tests that run offline in a few seconds.
+Everything is covered by 561 unit and integration tests that run offline in a few seconds.
 
 ## Quick start
 
-Requires Python 3.11 or 3.12.
+Requires Python 3.11–3.13 (3.14 works with current PyTorch but is not in CI).
+
+The one-command path (macOS Apple Silicon / Intel, or Linux):
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install --index-url https://download.pytorch.org/whl/cpu torch   # CPU build, much smaller
-pip install -e ".[dev]"                                              # scraper, cleaner, tests
-pytest -q                                                            # 519 tests, a few seconds
+./setup.sh            # venv + PyTorch + chat runtime + the default chat model
+python app.py         # chat
 ```
 
-For the chat model and benchmark, also install the local runtime and build llama.cpp tools:
+`setup.sh` does the right thing per platform: on macOS it checks for the Xcode Command Line Tools and builds the Metal backend so Apple Silicon runs on the GPU; on Linux it installs the small CPU-only PyTorch build. Flags: `--small-model` (0.5B instead of 1.5B), `--no-model`, `--no-llm`, `--python PATH`.
+
+Manual setup, step by step:
 
 ```bash
-pip install -e ".[llm,convert]"    # llama-cpp-python (CPU), transformers, gguf, sentencepiece
-./quantize.sh --help               # builds llama.cpp v0.6.0 into ~/.cache/tantra-llm/llama.cpp
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"                                              # scraper, cleaner, tests (pulls in PyTorch)
+pytest -q                                                            # 561 tests, a few seconds
 ```
+
+On Linux you can install the CPU-only PyTorch wheel first (`pip install --index-url https://download.pytorch.org/whl/cpu torch`) to keep the download small. On macOS the PyPI wheel already is the CPU build; there is no separate CPU index.
+
+For the chat app and benchmark, also install the local runtime and (optionally) the conversion tools:
+
+```bash
+pip install -e ".[llm]"       # llama-cpp-python, compiled from source: a few minutes
+pip install -e ".[convert]"   # only for quantize.sh: transformers, gguf, sentencepiece
+./quantize.sh --help          # builds llama.cpp v0.6.0 into ~/.cache/tantra-llm/llama.cpp
+```
+
+On macOS, `pip install -e ".[llm]"` needs the Xcode Command Line Tools (`xcode-select --install`). The build enables the Metal backend automatically and compiles the shaders into the library; `setup.sh` falls back to a CPU-only build when the Metal compiler is missing (`xcrun -f metal` fails). The quantize tools built by `quantize.sh` are CPU-only either way.
+
+## Get the chat model
+
+No weights are shipped in this repository. `fetch_model.py` downloads an official Qwen GGUF build, resumes interrupted downloads, and verifies the exact size, the SHA-256 and the GGUF magic before the file is put in place:
+
+```bash
+python fetch_model.py                # Qwen2.5-1.5B-Instruct · Q4_K_M · 1.04 GiB (default)
+python fetch_model.py --size small   # Qwen2.5-0.5B-Instruct · Q4_K_M · 468 MiB
+python fetch_model.py --list
+```
+
+The pins (`tantra/fetch.py`) were read from the Hugging Face tree API in October 2026:
+
+| Option | File | Bytes | SHA-256 |
+|---|---|---|---|
+| `standard` | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | 1,117,320,736 | `6a1a2eb6…34e9407e` |
+| `small` | `qwen2.5-0.5b-instruct-q4_k_m.gguf` | 491,400,032 | `74a4da8c…d7a9db` |
+
+Both come from `Qwen/Qwen2.5-1.5B-Instruct-GGUF` and `Qwen/Qwen2.5-0.5B-Instruct-GGUF` (Apache-2.0). Point `app.py` at any other GGUF with `--model`.
 
 ## Usage
 
@@ -96,14 +131,17 @@ Output goes to `models/gguf/`: `<name>-Q4_K_M.gguf` and `<name>-Q3_K_L.gguf`, th
 ```bash
 python app.py                                  # newest Q4_K_M model in models/gguf/
 python app.py --prompt "তন্ত্র কী?"            # one answer and exit
+python app.py --gpu-layers 0                   # force CPU (default: offload everything the GPU supports)
 python benchmark.py --threads 2 --enforce      # exit 3 if peak RAM exceeds the budget
 ```
 
 Inside the chat, `/help`, `/reset`, `/stats` and `/exit` are available. Threads default to 4 on hosts with 4 or more physical cores, otherwise 2. Each answer ends with a footer showing tokens per second and resident memory against the budget. Benchmark reports are written as JSON to `reports/`.
 
+On Apple Silicon the runtime built by `setup.sh` includes the Metal backend, and `--gpu-layers` defaults to offloading every layer (`-1`) whenever the runtime supports GPU offload; on a CPU-only build the default is `0`. The load line and `/stats` show which device is in use.
+
 ## Memory budget
 
-The target machine has 4 GB of RAM and no GPU. The operational budget is **2.5 GiB** resident (`MEMORY_BUDGET_MB = 2560`), leaving the rest for the operating system.
+The target machine has 4 GB of RAM and no GPU. The operational budget there is **2.5 GiB** resident (`MEMORY_BUDGET_MB = 2560`), leaving the rest for the operating system. On larger hosts the advisory ceiling scales up (3 GiB at 8 GB RAM, 4 GiB at 16 GB) so the warning stays meaningful — Apple Silicon keeps GPU-resident weights in the same unified memory that RSS accounting sees. `--budget-mb` overrides the default.
 
 The planned model is Qwen2.5-1.5B-Instruct quantized to Q4_K_M. A rough estimate is about 1.1 GB of weights, about 57 MB of KV cache at a 2048-token context, plus runtime overhead. That is an estimate. The measured figure comes from `benchmark.py` on the target hardware, and it is not in this repository yet.
 
@@ -120,11 +158,12 @@ Read this before you publish or redistribute anything.
 
 ## Network and verification limits
 
-Archive.org and Hugging Face were unreachable from the environment where this was built. So:
+Archive.org, Hugging Face and the live Qwen download were unreachable from the environment where this was built. So:
 
 - The scraper is tested against an in-memory fake of archive.org. The query syntax and metadata field names come from the `internetarchive` library and the archive's advanced-search documentation, and have not been checked against a live response.
-- The Qwen2.5 conversion path in `quantize.sh` has not been run. The same script was verified end-to-end on a tiny random LLaMA with a SentencePiece tokenizer, because llama.cpp v0.6.0 rejects the tiny Qwen2 BPE tokenizer that was tried. The Qwen repository ID is set as a default but has not been verified.
+- The Qwen2.5 conversion path in `quantize.sh` has not been run. The same script was verified end-to-end on a tiny random LLaMA with a SentencePiece tokenizer. The Qwen repository ID and file names in `tantra/fetch.py` were checked against the Hugging Face tree API (sizes and SHA-256 pins included), but the download itself was not run from the build sandbox.
 - Model quality and memory on the 1.5B model are unmeasured. They should be measured on the target hardware before any claim is made.
+- macOS behaviour (bash 3.2, BSD `stat`/`shasum`, Apple Silicon Metal build) is exercised by CI on `macos-14` runners: the test suite runs `quantize.sh` end-to-end against stub tools there, and a separate job compiles `llama-cpp-python` from source exactly as `setup.sh` does.
 
 ## How the corruption is modelled
 
@@ -195,9 +234,11 @@ The default `--edit-weight` stays at 1.0 with the SUMono baseline only. It is th
 
 ```bash
 ruff check . && ruff format --check .   # lint and formatting (ruff pinned to 0.17.0)
-pytest -q                               # 519 unit and integration tests
-shellcheck quantize.sh                  # shell checks
+pytest -q                               # 561 unit and integration tests
+shellcheck quantize.sh setup.sh         # shell checks (the CI runner uses stock macOS bash 3.2 too)
 ```
+
+CI runs the test suite on Linux (Python 3.11–3.13) and on macOS 14 (Apple Silicon), builds the sdist/wheel, and compiles the chat runtime from source on a macOS runner.
 
 Layout:
 

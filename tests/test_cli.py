@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,13 @@ def test_find_default_model_prefers_q4_k_m(tmp_path):
     (tmp_path / "a-Q3_K_L.gguf").write_bytes(b"GGUF")
     (tmp_path / "b-Q4_K_M.gguf").write_bytes(b"GGUF")
     assert find_default_model(tmp_path).name == "b-Q4_K_M.gguf"
+
+
+def test_find_default_model_prefers_the_newest_q4_k_m(tmp_path):
+    (tmp_path / "older-Q4_K_M.gguf").write_bytes(b"GGUF")
+    (tmp_path / "newer-Q4_K_M.gguf").write_bytes(b"GGUF")
+    os.utime(tmp_path / "older-Q4_K_M.gguf", (1_000_000, 1_000_000))
+    assert find_default_model(tmp_path).name == "newer-Q4_K_M.gguf"
 
 
 def test_chat_fails_gracefully_without_a_model(tmp_path, capsys):

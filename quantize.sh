@@ -32,6 +32,37 @@ DRY_RUN=0
 
 readonly SUPPORTED_TYPES="Q2_K Q3_K_S Q3_K_M Q3_K_L Q4_K_S Q4_K_M Q5_K_S Q5_K_M Q6_K Q8_0"
 
+# ----------------------------------------------------------------- portable helpers
+# Everything here must work with macOS's stock toolchain (bash 3.2, BSD userland) as well as GNU/Linux.
+file_size_bytes() { wc -c < "$1" | tr -d '[:space:]'; }
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -- "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+  fi
+}
+
+total_mem_kb() {
+  if [[ -r /proc/meminfo ]]; then
+    awk '/MemTotal/ {print $2}' /proc/meminfo
+  elif command -v sysctl >/dev/null 2>&1 && sysctl -n hw.memsize >/dev/null 2>&1; then
+    echo $(( $(sysctl -n hw.memsize) / 1024 ))
+  else
+    echo 0
+  fi
+}
+
+cpu_count() {
+  local n
+  n="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+  [[ "$n" =~ ^[0-9]+$ && "$n" -ge 1 ]] || n=2
+  echo "$n"
+}
+
 # ----------------------------------------------------------------- output helpers
 if [[ -t 1 ]]; then
   C_BOLD=$'\033[1m'; C_GOLD=$'\033[38;5;178m'; C_OK=$'\033[38;5;114m'; C_WARN=$'\033[38;5;221m'; C_ERR=$'\033[38;5;203m'; C_DIM=$'\033[2m'; C_OFF=$'\033[0m'
@@ -104,12 +135,13 @@ done
 
 IFS=',' read -r -a REQUESTED <<<"$TYPES"
 [[ ${#REQUESTED[@]} -gt 0 ]] || die "--types is empty"
+[[ "$TYPES" =~ ^[A-Za-z0-9_]+(,[A-Za-z0-9_]+)*$ ]] || die "--types must be a comma-separated list of quantization types (no empty entries)"
 for t in "${REQUESTED[@]}"; do
   [[ " $SUPPORTED_TYPES " == *" $t "* ]] || die "unsupported quantization type '$t' (supported: $SUPPORTED_TYPES)"
 done
 
 if [[ -z "$THREADS" ]]; then
-  THREADS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+  THREADS="$(cpu_count)"
 fi
 [[ "$THREADS" =~ ^[0-9]+$ && "$THREADS" -ge 1 ]] || die "--threads must be a positive integer"
 
@@ -155,10 +187,15 @@ fi
 LLAMA_BIN="$LLAMA_CPP_DIR/build/bin"
 if [[ ! -x "$LLAMA_BIN/llama-quantize" || ! -x "$LLAMA_BIN/llama-imatrix" ]]; then
   if command -v cmake >/dev/null 2>&1; then CMAKE_BIN=cmake; elif [[ -x "$SCRIPT_DIR/.venv/bin/cmake" ]]; then CMAKE_BIN="$SCRIPT_DIR/.venv/bin/cmake"; else die "cmake not found (pip install cmake, or install it with your package manager)"; fi
-  GENERATOR=()
-  if command -v ninja >/dev/null 2>&1; then GENERATOR=(-G Ninja); fi
   info "building llama-quantize and llama-imatrix (first time only)"
-  "$CMAKE_BIN" -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" "${GENERATOR[@]}" -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF >/dev/null
+  # These tools run on the CPU; switching the GPU backends off keeps the build small and
+  # removes the need for the Metal toolchain when building on a Mac.
+  # Note: no arrays here - an empty "${arr[@]}" expansion is an unbound variable under bash 3.2's set -u.
+  if command -v ninja >/dev/null 2>&1; then
+    "$CMAKE_BIN" -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF >/dev/null
+  else
+    "$CMAKE_BIN" -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF >/dev/null
+  fi
   "$CMAKE_BIN" --build "$LLAMA_CPP_DIR/build" --config Release -j "$THREADS" --target llama-quantize llama-imatrix >/dev/null
 fi
 [[ -x "$LLAMA_BIN/llama-quantize" && -x "$LLAMA_BIN/llama-imatrix" ]] || die "build did not produce llama-quantize / llama-imatrix"
@@ -179,9 +216,9 @@ fi
 # ----------------------------------------------------------------- 3. i-matrix
 if [[ $USE_IMATRIX -eq 1 ]]; then
   step "Importance matrix from calibration text"
-  total_mem_kb="$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-  if [[ "$total_mem_kb" -gt 0 && "$total_mem_kb" -lt 6000000 ]]; then
-    warn "only $((total_mem_kb / 1024)) MB RAM: the f16 model may not fit during imatrix; consider a larger machine"
+  mem_kb="$(total_mem_kb)"
+  if [[ "$mem_kb" -gt 0 && "$mem_kb" -lt 6000000 ]]; then
+    warn "only $((mem_kb / 1024)) MB RAM: the f16 model may not fit during imatrix; consider a larger machine"
   fi
   "$LLAMA_BIN/llama-imatrix" -m "$F16_PATH" -f "$CALIBRATION" -o "$IMATRIX_PATH" \
     --chunks "$IMATRIX_CHUNKS" -t "$THREADS" -ngl 0 --no-ppl >/dev/null \
@@ -209,13 +246,15 @@ for f in "${produced[@]}"; do
   [[ -s "$f" ]] || die "$f is empty"
   magic="$(head -c 4 "$f")"
   [[ "$magic" == "GGUF" ]] || die "$f does not start with the GGUF magic bytes"
-  size_mb=$(( $(stat -c %s "$f") / 1048576 ))
-  ok "$(basename -- "$f") · valid GGUF · ${size_mb} MB"
+  size_mb=$(( $(file_size_bytes "$f") / 1048576 ))
+  ok "${f##*/} · valid GGUF · ${size_mb} MB"
 done
-names=()
-for f in "${produced[@]}"; do names+=("$(basename -- "$f")"); done
-( cd "$OUT_DIR" && sha256sum -- "${names[@]}" > "$NAME.SHA256SUMS" )
-ok "checksums: $OUT_DIR/$NAME.SHA256SUMS"
+checksums="$OUT_DIR/$NAME.SHA256SUMS"
+: > "$checksums"
+for f in "${produced[@]}"; do
+  printf '%s  %s\n' "$(sha256_file "$f")" "${f##*/}" >> "$checksums"
+done
+ok "checksums: $checksums"
 
 if [[ $DROP_F16 -eq 1 ]]; then rm -f -- "$F16_PATH"; info "removed f16 intermediate"; fi
 

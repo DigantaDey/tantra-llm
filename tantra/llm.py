@@ -44,8 +44,29 @@ class RuntimeMissingError(ImportError):
     pass
 
 
+def gpu_offload_supported() -> bool:
+    """True when the installed llama-cpp-python can move layers to a GPU (Metal on macOS, CUDA, …)."""
+    try:
+        import llama_cpp
+    except ImportError:
+        return False
+    checker = getattr(llama_cpp, "llama_supports_gpu_offload", None)
+    return bool(checker()) if callable(checker) else False
+
+
+def resolve_gpu_layers(n_gpu_layers: int | None) -> int:
+    """``None`` means auto: offload every layer when the runtime supports it, otherwise CPU only."""
+    if n_gpu_layers is not None:
+        return n_gpu_layers
+    return -1 if gpu_offload_supported() else 0
+
+
+def device_label(gpu_layers: int) -> str:
+    return "CPU" if gpu_layers == 0 else f"GPU ({gpu_layers} layers)" if gpu_layers > 0 else "GPU (all layers)"
+
+
 class LlamaCppBackend:
-    """Runs a GGUF model on CPU via llama-cpp-python."""
+    """Runs a GGUF model via llama-cpp-python (Metal on macOS when the runtime was built with it)."""
 
     def __init__(
         self,
@@ -55,6 +76,7 @@ class LlamaCppBackend:
         threads: int = 4,
         n_batch: int = 256,
         seed: int = 0,
+        n_gpu_layers: int | None = None,
     ) -> None:
         path = Path(model_path)
         if not path.is_file():
@@ -62,15 +84,22 @@ class LlamaCppBackend:
         try:
             from llama_cpp import Llama
         except ImportError as exc:  # pragma: no cover - depends on environment
-            raise RuntimeMissingError("llama-cpp-python is not installed: pip install -e '.[llm]'") from exc
+            raise RuntimeMissingError(
+                "llama-cpp-python is not installed. Install the local runtime with:\n"
+                "    pip install -e '.[llm]'\n"
+                "On macOS this compiles llama.cpp (a few minutes) and needs the Xcode Command Line Tools:\n"
+                "    xcode-select --install"
+            ) from exc
         self._n_ctx = n_ctx
         self.model_path = path
+        self.gpu_layers = resolve_gpu_layers(n_gpu_layers)
         self._llm: Any = Llama(
             model_path=str(path),
             n_ctx=n_ctx,
             n_threads=threads,
             n_threads_batch=threads,
             n_batch=n_batch,
+            n_gpu_layers=self.gpu_layers,
             use_mmap=True,
             use_mlock=False,
             seed=seed,

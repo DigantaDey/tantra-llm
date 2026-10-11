@@ -34,10 +34,12 @@ jobs:
       - name: ruff format --check
         run: ruff format --check .
 
-      - name: Shell syntax and shellcheck (quantize.sh)
+      - name: Shell syntax and shellcheck (quantize.sh, setup.sh)
         run: |
           bash -n quantize.sh
+          bash -n setup.sh
           shellcheck quantize.sh
+          shellcheck setup.sh
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -46,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -65,6 +67,59 @@ jobs:
 
       - name: pytest
         run: python -m pytest -q
+
+  test-macos:
+    name: Tests (macOS, Apple Silicon)
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # On macOS the PyPI wheel is the CPU build; there is no separate CPU index.
+      - name: Install PyTorch
+        run: python -m pip install --upgrade pip torch
+
+      - name: Install project and dev tools
+        run: python -m pip install -e ".[dev]"
+
+      # The suite runs quantize.sh end to end with stub tools, so this also exercises
+      # the BSD userland and the stock bash 3.2 that macOS ships.
+      - name: pytest
+        run: python -m pytest -q
+
+  apple-silicon-runtime:
+    name: Chat runtime build (macOS, Apple Silicon)
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # This is the exact install path a Mac user follows; llama-cpp-python is compiled
+      # from source with the Metal backend, which is the step that most often breaks locally.
+      - name: Install project with the chat runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[llm]"
+
+      - name: Runtime imports and entry points
+        run: |
+          python -c "import llama_cpp; print('llama_cpp', llama_cpp.__version__)"
+          python -c "from tantra.llm import LlamaCppBackend, gpu_offload_supported; print('gpu offload:', gpu_offload_supported())"
+          python app.py --help
+          python benchmark.py --help
+          python fetch_model.py --help
 
   package:
     name: Build sdist and wheel
@@ -88,3 +143,4 @@ jobs:
           python -m venv /tmp/wheel-check
           /tmp/wheel-check/bin/pip install dist/*.whl
           /tmp/wheel-check/bin/tantra-scrape --help > /dev/null
+          /tmp/wheel-check/bin/tantra-fetch --help > /dev/null
